@@ -179,10 +179,13 @@ const DEFAULT_CFG = {
   glMinTrades: 100,
   glMinPF: 1.3,
   glMaxDD: 5,
+  btcTrendFilter: 0,     // 0/1. 1 = long hanya jika BTC 4h EMA naik, short hanya jika turun (default OFF, belum divalidasi)
+  btcEmaFast: 20,        // EMA 4h BTC
+  btcEmaSlow: 50,
 };
 
 const num = v => (v === null || v === undefined || v === '') ? NaN : Number(v);
-const M5 = 300000, M15 = 900000, M1 = 60000;
+const M5 = 300000, M15 = 900000, M1 = 60000, M4H = 14400000;
 
 function validateCfg(c) {
   const e = [];
@@ -198,6 +201,8 @@ function validateCfg(c) {
   if (!(c.topN >= 1 && c.topN <= 100)) e.push('topN 1–100');
   if (!(c.volLookback >= 5 && c.atrLen >= 2)) e.push('volLookback ≥ 5, atrLen ≥ 2');
   if (!(c.timeStopMin >= 5)) e.push('timeStop ≥ 5 menit');
+  if (!(c.btcTrendFilter === 0 || c.btcTrendFilter === 1)) e.push('btcTrendFilter 0 atau 1');
+  if (!(c.btcEmaSlow > c.btcEmaFast && c.btcEmaFast >= 2)) e.push('btcEmaSlow > btcEmaFast ≥ 2');
   for (const k of ['maxTradesDay','consecSLPause','glMinTrades']) if (!(c[k] >= 1)) e.push(k + ' ≥ 1');
   if (!(c.dailyLossStop > 0)) e.push('dailyLossStop > 0');
   for (const k of ['pauseMin','minVol24hM','maxSpreadPct','pullbackPct','volMult','maxAtrPct','minAtrPct','takerFeePct','slippagePct','glMaxDD']) if (!(c[k] >= 0)) e.push(k + ' ≥ 0');
@@ -278,8 +283,19 @@ function buildUniverse(contracts, tickers, cfg) {
   return rows.slice(0, cfg.topN);
 }
 
-// c15, c5: candle TERTUTUP saja
-function evalSignal(c15, c5, cfg) {
+// Tren BTC dari candle 4h TERTUTUP: 1 naik, -1 turun, 0 datar/data kurang (fail closed).
+// Dipakai identik oleh live dan backtest (BTC_TREND_WIN bar terakhir).
+const BTC_TREND_WIN = 200;
+function btcTrend(c4h, cfg) {
+  if (!Array.isArray(c4h) || c4h.length < cfg.btcEmaSlow + 1) return 0;
+  const cl = c4h.slice(-BTC_TREND_WIN).map(x => x.c);
+  const f = ema(cl, cfg.btcEmaFast), s = ema(cl, cfg.btcEmaSlow), i = cl.length - 1;
+  if (!(Number.isFinite(f[i]) && Number.isFinite(s[i]))) return 0;
+  return f[i] > s[i] ? 1 : f[i] < s[i] ? -1 : 0;
+}
+
+// c15, c5: candle TERTUTUP saja. btcSide: hasil btcTrend (dipakai bila cfg.btcTrendFilter=1; undefined = 0 = blokir)
+function evalSignal(c15, c5, cfg, btcSide) {
   const res = { ok: false, side: 0, why: '' };
   if (c15.length < cfg.emaSlow + 1 || c5.length < Math.max(cfg.emaFast + 2, cfg.volLookback + 2, cfg.atrLen + 2)) { res.why = 'data kurang'; return res; }
   const cl15 = c15.map(x => x.c);
@@ -287,6 +303,7 @@ function evalSignal(c15, c5, cfg) {
   const i = c15.length - 1;
   if (f15[i] > s15[i]) res.side = 1; else if (f15[i] < s15[i]) res.side = -1;
   if (!res.side) { res.why = 'tren datar'; return res; }
+  if (cfg.btcTrendFilter && (btcSide || 0) !== res.side) { res.why = 'filter BTC'; return res; }
   const f5 = ema(c5.map(x => x.c), cfg.emaFast);
   const a5 = atr(c5, cfg.atrLen);
   const j = c5.length - 1, c0 = c5[j], c1 = c5[j - 1];
@@ -452,6 +469,11 @@ function createEngine(opts) {
     const exp5 = boundary - M5;
     const exp15 = Math.floor(nowMs / M15) * M15 - M15;
     const tally = {};
+    let btcSide = 0;
+    if (cfg.btcTrendFilter) {
+      try { btcSide = btcTrend(parseCandles(await api('futures/usdt/candlesticks', { contract: 'BTC_USDT', interval: '4h', limit: BTC_TREND_WIN }), M4H, nowMs).closed, cfg); }
+      catch (e) { st.errors++; log('Filter BTC: gagal ambil data 4h, tidak ada entry (' + String(e.message || e) + ')', 'e'); }
+    }
     const results = await pool(st.universe, 4, async u => {
       try {
         const [r15, r5] = await Promise.all([
@@ -460,7 +482,7 @@ function createEngine(opts) {
         ]);
         const c15 = parseCandles(r15, M15, nowMs).closed, c5 = parseCandles(r5, M5, nowMs).closed;
         if (!c5.length || c5[c5.length - 1].t * 1000 !== exp5 || !c15.length || c15[c15.length - 1].t * 1000 !== exp15) return { u, sig: { ok: false, why: 'data basi' } };
-        return { u, sig: evalSignal(c15, c5, cfg) };
+        return { u, sig: evalSignal(c15, c5, cfg, btcSide) };
       } catch (e) {
         st.errors++;
         return { u, sig: { ok: false, why: 'error' }, err: String(e.message || e) };
@@ -603,7 +625,7 @@ function aggregate(base, tfSec) {
 }
 
 // series: [{contract, mult, sizeMin, baseSec(60|300), base:[{t,o,h,l,c,vq}], funding:[{t,r}]}]
-// o: {startMs, endMs, halfSpreadPct, onProgress(frac), yieldEvery}
+// o: {startMs, endMs, halfSpreadPct, onProgress(frac), yieldEvery, btc4h: [{t,o,h,l,c,vq}] 4h tertutup (wajib bila cfg.btcTrendFilter=1; kosong => tidak ada entry)}
 async function runBacktest(series, cfg, o) {
   const W = 200, halfSpread = (o.halfSpreadPct != null ? o.halfSpreadPct : cfg.maxSpreadPct / 2) / 100;
   const coins = series.filter(s => s.base && s.base.length).map(s => {
@@ -622,6 +644,8 @@ async function runBacktest(series, cfg, o) {
   const B0 = Math.ceil(o.startMs / stepMs) * stepMs, B1 = Math.floor(o.endMs / stepMs) * stepMs;
   const total = Math.max(1, (B1 - B0) / stepMs);
   let n = 0, evals = 0;
+  const btc4h = o.btc4h || [];
+  let bj = -1;
 
   function close(hit, atMs) {
     const t = closeTrade(pos.p, hit.px, hit.reason, atMs);
@@ -659,11 +683,17 @@ async function runBacktest(series, cfg, o) {
       if (!blocked) {
         const t5 = B / 1000 - 300, t15 = Math.floor(B / 900000) * 900 - 900;
         const cands = [];
+        let btcSide = 0;
+        if (cfg.btcTrendFilter) {
+          const lim = B / 1000 - 14400; // bar 4h tertutup saat B
+          while (bj + 1 < btc4h.length && btc4h[bj + 1].t <= lim) bj++;
+          btcSide = bj >= 0 ? btcTrend(btc4h.slice(Math.max(0, bj - BTC_TREND_WIN + 1), bj + 1), cfg) : 0;
+        }
         for (const c of coins) {
           const j5 = c.i5.get(t5), j15 = c.i15.get(t15);
           if (j5 === undefined || j15 === undefined) continue;
           evals++;
-          const sig = evalSignal(c.c15.slice(Math.max(0, j15 - W + 1), j15 + 1), c.c5.slice(Math.max(0, j5 - W + 1), j5 + 1), cfg);
+          const sig = evalSignal(c.c15.slice(Math.max(0, j15 - W + 1), j15 + 1), c.c5.slice(Math.max(0, j5 - W + 1), j5 + 1), cfg, btcSide);
           if (sig.ok) cands.push({ c, sig });
         }
         cands.sort((a, b) => b.sig.volRatio - a.sig.volRatio);
@@ -698,6 +728,46 @@ async function runBacktest(series, cfg, o) {
   return { trades, stats: S, perCoin, monthly, balance, evals, startMs: B0, endMs: B1 };
 }
 
+// Grid + walk-forward. IS = 2/3 awal, OOS = 1/3 akhir. Semua kombinasi dihitung di IS dan OOS; tabel penuh dikembalikan.
+// bestIS dipilih HANYA dari net IS (OOS tidak pernah dipakai memilih). Go-live dinilai pada OOS bestIS saja.
+const GRID = { sl: [1, 1.5, 2, 3], tp: [1.5, 2, 3, 4], ts: [60, 120, 240] };
+function gridCombos() {
+  const out = [];
+  for (const slPct of GRID.sl) for (const tpPct of GRID.tp) { if (tpPct < 2 * slPct) continue; for (const timeStopMin of GRID.ts) out.push({ slPct, tpPct, timeStopMin }); }
+  return out;
+}
+async function runGrid(series, cfg, o) {
+  const frac = o.splitFrac || 2 / 3, combos = gridCombos();
+  const splitMs = Math.floor((o.startMs + (o.endMs - o.startMs) * frac) / M5) * M5;
+  const rows = [];
+  for (let i = 0; i < combos.length; i++) {
+    if (o.cancelled && o.cancelled()) return { cancelled: true, rows, splitMs };
+    const c = Object.assign({}, cfg, combos[i]);
+    const common = { halfSpreadPct: o.halfSpreadPct, btc4h: o.btc4h, yieldEvery: o.yieldEvery, cancelled: o.cancelled };
+    const is = await runBacktest(series, c, Object.assign({ startMs: o.startMs, endMs: splitMs }, common));
+    if (o.cancelled && o.cancelled()) return { cancelled: true, rows, splitMs };
+    const oos = await runBacktest(series, c, Object.assign({ startMs: splitMs, endMs: o.endMs }, common));
+    if (o.cancelled && o.cancelled()) return { cancelled: true, rows, splitMs };
+    rows.push({ combo: combos[i], is: is.stats, oos: oos.stats, isBalance: is.balance, oosBalance: oos.balance });
+    if (o.onGridProgress) o.onGridProgress(i + 1, combos.length);
+    await new Promise(r => setTimeout(r, 0));
+  }
+  let best = -1;
+  rows.forEach((r, i) => { if (best < 0 || r.is.total > rows[best].is.total) best = i; });
+  return { cancelled: false, rows, bestIS: best, splitMs, startMs: o.startMs, endMs: o.endMs };
+}
+
+// Peringatan kejujuran laporan. days = panjang periode dievaluasi.
+function reportWarnings(n, days, cfg) {
+  const w = [];
+  if (n < 100) w.push('Hanya ' + n + ' trade (< 100): tidak cukup untuk kesimpulan statistik.');
+  if (days < 60) w.push('Periode ' + Math.round(days) + ' hari (< 60): terlalu pendek.');
+  w.push('Parameter belum divalidasi. Hasil backtest bukan jaminan profit.');
+  return w;
+}
+// Go-live hanya dari statistik OOS, dan hanya jika periode total >= 60 hari.
+function goLiveOOS(oosStats, totalDays) { return !!(oosStats && oosStats.ready && totalDays >= 60); }
+
 function fmtPx(x) {
   if (!Number.isFinite(x)) return '—';
   const a = Math.abs(x);
@@ -705,7 +775,7 @@ function fmtPx(x) {
   return x.toFixed(d);
 }
 
-const AT = { aggregate, runBacktest, DEFAULT_CFG, validateCfg, ema, atr, parseCandles, baseOf, buildUniverse, evalSignal, sizePosition, checkCandle, closeTrade, stats, createEngine, freshState, fmtPx, utcDay };
+const AT = { btcTrend, runGrid, gridCombos, reportWarnings, goLiveOOS, aggregate, runBacktest, DEFAULT_CFG, validateCfg, ema, atr, parseCandles, baseOf, buildUniverse, evalSignal, sizePosition, checkCandle, closeTrade, stats, createEngine, freshState, fmtPx, utcDay };
 if (typeof window !== 'undefined') window.AT = AT;
 if (typeof module !== 'undefined') module.exports = AT;
 }

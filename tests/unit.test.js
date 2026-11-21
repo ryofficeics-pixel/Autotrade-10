@@ -164,4 +164,50 @@ t('evalSignal rejects high ATR and flat data', () => {
   assert.strictEqual(AT.evalSignal(c15.slice(0, 10), c5, cfg).why, 'data kurang');
 });
 
+
+// ---- BTC trend filter, grid, honesty (rev3) ----
+const mkB = (arr) => arr.map((c, i) => ({ t: i * 14400, o: c, h: c, l: c, c, vq: 1 }));
+t('btcTrend: up/down/flat/insufficient (fail closed)', () => {
+  assert.strictEqual(AT.btcTrend(mkB(Array.from({ length: 80 }, (_, i) => 100 + i)), cfg), 1);
+  assert.strictEqual(AT.btcTrend(mkB(Array.from({ length: 80 }, (_, i) => 200 - i)), cfg), -1);
+  assert.strictEqual(AT.btcTrend(mkB(Array(80).fill(100)), cfg), 0);
+  assert.strictEqual(AT.btcTrend(mkB([1, 2, 3]), cfg), 0);
+  assert.strictEqual(AT.btcTrend(null, cfg), 0);
+});
+t('cfg btcTrendFilter default OFF + validation', () => {
+  assert.strictEqual(AT.DEFAULT_CFG.btcTrendFilter, 0);
+  assert.ok(AT.validateCfg({ ...cfg, btcTrendFilter: 2 }).length);
+  assert.ok(AT.validateCfg({ ...cfg, btcEmaSlow: 10, btcEmaFast: 20 }).length);
+});
+t('evalSignal BTC filter: blocks opposite/0/undefined, allows same side; OFF ignores BTC', () => {
+  // cari jendela dengan sinyal ok (filter off) pada seri tren naik bergelombang
+  let found = null;
+  for (let seed = 1; seed < 60 && !found; seed++) {
+    let s = seed, p = 100; const r = () => (s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296;
+    const c5 = [], c15 = [];
+    for (let i = 0; i < 400; i++) { const o = p; p = o * (1 + (r() - 0.45) * 0.004); c5.push({ t: i * 300, o, h: Math.max(o, p) * 1.0008, l: Math.min(o, p) * 0.9992, c: p, vq: 1e5 * (r() < 0.3 ? 3 : 1) }); }
+    for (let i = 0; i < 134; i++) { const b = c5.slice(i * 3, i * 3 + 3); if (b.length < 3) break; c15.push({ t: i * 900, o: b[0].o, h: Math.max(...b.map(x => x.h)), l: Math.min(...b.map(x => x.l)), c: b[2].c, vq: 0 }); }
+    for (let j = 220; j < 399 && !found; j++) { const a = c5.slice(0, j + 1), b = c15.slice(0, Math.floor((j + 1) / 3)); const sg = AT.evalSignal(b, a, { ...cfg, minAtrPct: 0, maxAtrPct: 100 }); if (sg.ok) found = { a, b, side: sg.side }; }
+  }
+  assert.ok(found, 'butuh jendela sinyal');
+  const on = { ...cfg, minAtrPct: 0, maxAtrPct: 100, btcTrendFilter: 1 }, off = { ...on, btcTrendFilter: 0 };
+  assert.ok(AT.evalSignal(found.b, found.a, off, -found.side).ok, 'OFF: BTC diabaikan');
+  assert.ok(AT.evalSignal(found.b, found.a, on, found.side).ok, 'searah lolos');
+  for (const bad of [-found.side, 0, undefined]) { const r = AT.evalSignal(found.b, found.a, on, bad); assert.ok(!r.ok && r.why === 'filter BTC'); }
+});
+t('gridCombos: TP >= 2*SL, 18 kombinasi, sesuai spesifikasi', () => {
+  const g = AT.gridCombos();
+  assert.strictEqual(g.length, 18);
+  assert.ok(g.every(c => c.tpPct >= 2 * c.slPct && [1, 1.5, 2, 3].includes(c.slPct) && [60, 120, 240].includes(c.timeStopMin)));
+});
+t('reportWarnings: <100 trade, <60 hari, selalu disclaimer; goLiveOOS butuh >=60 hari', () => {
+  const w = AT.reportWarnings(50, 30, cfg).join(' ');
+  assert.ok(/< 100/.test(w) && /< 60/.test(w) && /belum divalidasi/.test(w));
+  const w2 = AT.reportWarnings(150, 90, cfg).join(' ');
+  assert.ok(!/< 100/.test(w2) && !/< 60/.test(w2));
+  assert.strictEqual(AT.goLiveOOS({ ready: true }, 59), false);
+  assert.strictEqual(AT.goLiveOOS({ ready: false }, 90), false);
+  assert.strictEqual(AT.goLiveOOS({ ready: true }, 90), true);
+  assert.strictEqual(AT.goLiveOOS(null, 90), false);
+});
 console.log(`\n${pass} unit tests passed`);

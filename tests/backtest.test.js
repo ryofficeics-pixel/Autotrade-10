@@ -33,6 +33,11 @@ for (const [sym, p0] of SYMS) {
   data[sym] = arr;
 }
 
+// BTCF=up|down: filter tren BTC aktif, BTC 4h sintetis monoton naik/turun. Live dan backtest harus identik.
+const BTCF = process.env.BTCF || '';
+const B4 = 14400;
+const btcAll = [];
+if (BTCF) for (let i = 0, t0 = Math.floor(T0 / 1000 / B4) * B4 - 70 * B4; i < 70 + Math.ceil((N + 3000) / 240) + 10; i++) { const c = BTCF === 'up' ? 100 + i : 100000 - i; btcAll.push({ t: t0 + i * B4, o: c, h: c + 0.5, l: c - 0.5, c, vq: 1 }); }
 let clock = T0 + WARM * M1 + 5000;
 const now = () => clock;
 const idxAt = ms => Math.floor((ms - T0) / M1);
@@ -61,21 +66,23 @@ async function api(path, q) {
   const tk = n => ({ contract: n, last: String(px(n)), highest_bid: String(px(n) * 0.9998), lowest_ask: String(px(n) * 1.0002), volume_24h_quote: '900000000', funding_rate: '0.0001' });
   if (path === 'futures/usdt/tickers') return q.contract ? [tk(q.contract)] : SYMS.map(s => tk(s[0]));
   if (path === 'futures/usdt/order_book') { const p = data[q.contract][idxAt(clock)].o; return { asks: [{ p: String(p * 1.0002), s: 10 }], bids: [{ p: String(p * 0.9998), s: 10 }] }; }
+  if (path === 'futures/usdt/candlesticks' && q.interval === '4h') { assert.strictEqual(q.contract, 'BTC_USDT'); return btcAll.filter(b => b.t * 1000 <= clock).slice(-Number(q.limit)).map(b => ({ t: b.t, o: String(b.o), h: String(b.h), l: String(b.l), c: String(b.c), v: 1, sum: '1' })); }
   if (path === 'futures/usdt/candlesticks') { const iv = { '1m': 1, '5m': 5, '15m': 15 }[q.interval]; assert.ok(iv, 'interval'); assert.ok(q.limit <= 2000); return agg(q.contract, iv, Number(q.limit)); }
   throw new Error('unknown path ' + path);
 }
 
 
 (async () => {
-  const cfg = { ...AT.DEFAULT_CFG, denylist: '' };
+  const cfg = { ...AT.DEFAULT_CFG, denylist: '', btcTrendFilter: BTCF ? 1 : 0 };
   const startMs = T0 + WARM * M1, endMs = T0 + (WARM + DAYS * 24 * 60) * M1;
   const funding = [];
   for (let f = Math.ceil(T0 / 28800000) * 28800; f * 1000 <= endMs + 86400000; f += 28800) funding.push({ t: f, r: '0.0001' });
   const series = SYMS.map(([n, , m]) => ({ contract: n, mult: m, sizeMin: 1, baseSec: 60, base: data[n].filter(b => b.t * 1000 < endMs + 86400000), funding }));
-  const bt = await AT.runBacktest(series, cfg, { startMs, endMs, halfSpreadPct: 0.02 });
+  const bt = await AT.runBacktest(series, cfg, { startMs, endMs, halfSpreadPct: 0.02, btc4h: btcAll });
   const S = bt.stats;
   console.log('backtest trades', S.n, 'reasons', JSON.stringify(S.reasons), 'net', S.total.toFixed(3), 'evals', bt.evals);
-  assert.ok(S.n >= 10, 'too few trades');
+  assert.ok(S.n >= (BTCF ? 3 : 10), 'too few trades');
+  if (BTCF) assert.ok(bt.trades.every(t => t.side === (BTCF === 'up' ? 1 : -1)), 'BTC filter: arah salah di backtest');
   assert.ok(Math.abs(bt.balance - cfg.startBalance - S.total) < 1e-9, 'balance invariant');
   const T = bt.trades;
   for (let i = 1; i < T.length; i++) assert.ok(T[i].openedAt >= T[i - 1].closedAt, 'overlap');
@@ -127,7 +134,26 @@ async function api(path, q) {
   let same = 0, diffReason = 0;
   for (const t of T) { const l = lm.get(key(t)); if (!l) continue; same++; if (l.reason !== t.reason || l.side !== t.side) diffReason++; }
   console.log('live trades', L.length, '| backtest trades', T.length, '| matched entries', same, '| outcome mismatches', diffReason);
+  if (BTCF) assert.ok(L.every(t => t.side === (BTCF === 'up' ? 1 : -1)), 'BTC filter: arah salah di live');
   assert.ok(same / Math.max(T.length, L.length) >= 0.8, 'backtest vs live match too low');
   assert.ok(diffReason / Math.max(1, same) <= 0.05, 'outcome mismatch too high');
+  // grid + walk-forward (GRID=1 agar tidak memperlambat default)
+  if (process.env.GRID === '1') {
+    let ticks = 0; const iv = setInterval(() => ticks++, 0);
+    const g = await AT.runGrid(series, { ...cfg, btcTrendFilter: 0 }, { startMs, endMs, halfSpreadPct: 0.02 });
+    clearInterval(iv);
+    const combos = AT.gridCombos();
+    assert.strictEqual(combos.length, 18); assert.ok(combos.every(c => c.tpPct >= 2 * c.slPct));
+    assert.strictEqual(g.rows.length, 18); assert.ok(!g.cancelled); assert.ok(ticks > 0, 'event loop dipakai bergantian');
+    assert.ok(g.rows.every(r => r.is.n >= 0 && r.oos.n >= 0));
+    assert.ok(g.rows.every(r => r.is.total <= g.rows[g.bestIS].is.total), 'bestIS harus dari IS saja');
+    // IS dan OOS tidak tumpang tindih
+    const one = await AT.runBacktest(series, { ...cfg, btcTrendFilter: 0 }, { startMs, endMs: g.splitMs, halfSpreadPct: 0.02 });
+    assert.ok(one.trades.every(t => t.openedAt < g.splitMs));
+    assert.strictEqual(one.stats.n, g.rows.find(r => r.combo.slPct === 2 && r.combo.tpPct === 4 && r.combo.timeStopMin === 120).is.n);
+    let k = 0; const gc = await AT.runGrid(series, { ...cfg, btcTrendFilter: 0 }, { startMs, endMs, halfSpreadPct: 0.02, cancelled: () => k > 0, onGridProgress: () => { k++; } });
+    assert.ok(gc.cancelled && gc.rows.length === 1, 'grid bisa dibatalkan');
+    console.log('GRID PASS (18 kombinasi, IS/OOS, cancel)');
+  }
   console.log('BACKTEST PASS');
 })().catch(e => { console.error('BACKTEST FAIL', e); process.exit(1); });
