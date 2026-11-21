@@ -120,7 +120,7 @@ details summary{cursor:pointer;font-weight:600}
       <label for="btCoins">Jumlah koin (top volume, lolos filter)<input id="btCoins" type="number" min="1" max="40" value="15"></label>
       <label for="btList">Atau daftar koin manual (koma, mis. BTC_USDT,ETH_USDT)<input id="btList" type="text" spellcheck="false"></label>
     </div>
-    <div class="btns" style="margin-top:12px"><button id="bBtRun" class="pri">Jalankan backtest</button><button id="bBtStop" disabled>Batalkan</button><button id="bBtCsv" disabled>CSV trade backtest</button></div>
+    <div class="btns" style="margin-top:12px"><button id="bBtRun" class="pri">Jalankan backtest</button><button id="bBtGrid">Grid + walk-forward</button><button id="bBtStop" disabled>Batalkan</button><button id="bBtCsv" disabled>CSV trade backtest</button></div>
     <div class="sub" id="btStatus" style="margin-top:8px"></div>
     <div id="btRes"></div>
   </section>
@@ -867,7 +867,7 @@ const LABELS = {
   topN: 'Top N kontrak by volume', minVol24hM: 'Volume 24j min (juta USDT)', maxSpreadPct: 'Spread maks (%)', denylist: 'Denylist base (koma)',
   emaFast: 'EMA cepat', emaSlow: 'EMA lambat', pullbackPct: 'Jarak pullback ke EMA (%)', volMult: 'Volume > rata² ×', volLookback: 'Rata² volume (candle)',
   atrLen: 'ATR periode', maxAtrPct: 'ATR 5m maks (% harga)', minAtrPct: 'ATR 5m min (% harga)', takerFeePct: 'Fee taker (% per sisi)', slippagePct: 'Slippage (% per sisi)',
-  minNotionalRatio: 'Notional min (rasio target)', liqPct: 'Likuidasi (% harga)', glMinTrades: 'Go-live: min trade', glMinPF: 'Go-live: min profit factor', glMaxDD: 'Go-live: max drawdown (USDT)',
+  minNotionalRatio: 'Notional min (rasio target)', liqPct: 'Likuidasi (% harga)', glMinTrades: 'Go-live: min trade', glMinPF: 'Go-live: min profit factor', glMaxDD: 'Go-live: max drawdown (USDT)', btcTrendFilter: 'Filter tren BTC 4h (0=off, 1=on; belum divalidasi)', btcEmaFast: 'BTC 4h EMA cepat', btcEmaSlow: 'BTC 4h EMA lambat',
 };
 function renderCfg() {
   $('cfg').innerHTML = Object.keys(AT.DEFAULT_CFG).map(k => {
@@ -1067,7 +1067,7 @@ $('bApiFee').onclick = () => {
 let btCancel = false, btLast = null;
 const btLog = m => { $('btStatus').textContent = m; };
 async function fetchBars(contract, ivSec, fromSec, toSec, tick) {
-  const iv = ivSec === 60 ? '1m' : '5m', step = 1999 * ivSec, rows = [];
+  const iv = ({ 60: '1m', 300: '5m', 14400: '4h' })[ivSec], step = 1999 * ivSec, rows = [];
   let fails = 0;
   for (let to = toSec; to > fromSec && !btCancel; to -= step + ivSec) {
     const from = Math.max(fromSec, to - step);
@@ -1090,51 +1090,13 @@ async function fetchFunding(contract, intervalSec, fromSec, toSec) {
 }
 $('bBtStop').onclick = () => { btCancel = true; btLog('Membatalkan…'); };
 $('bBtRun').onclick = async () => {
-  const days = Math.round(Number($('btDays').value)), nCoin = Math.round(Number($('btCoins').value));
-  if (!(days >= 7 && days <= 365) || !(nCoin >= 1 && nCoin <= 40)) { btLog('Periode 7–365 hari, koin 1–40.'); return; }
-  btCancel = false; $('bBtRun').disabled = true; $('bBtStop').disabled = false; $('bBtCsv').disabled = true; $('btRes').innerHTML = '';
+  btCancel = false; $('bBtGrid').disabled = true; $('bBtRun').disabled = true; $('bBtStop').disabled = false; $('bBtCsv').disabled = true; $('btRes').innerHTML = '';
   try {
-    btLog('Mengambil daftar kontrak…');
-    const [contracts, tickers] = await Promise.all([api('futures/usdt/contracts', {}), api('futures/usdt/tickers', {})]);
-    const cmap = new Map(contracts.map(c => [c.name, c]));
-    let list;
-    const manual = $('btList').value.split(/[\s,]+/).map(x => x.trim().toUpperCase()).filter(Boolean);
-    if (manual.length) {
-      const bad = manual.filter(m => !cmap.has(m));
-      if (bad.length) throw new Error('kontrak tidak ditemukan: ' + bad.join(', '));
-      list = manual.slice(0, 40).map(m => { const c = cmap.get(m); return { contract: m, mult: Number(c.quanto_multiplier), sizeMin: Math.max(1, Number(c.order_size_min) || 1), fundingInterval: Number(c.funding_interval) || 28800 }; });
-    } else {
-      list = AT.buildUniverse(contracts, tickers, { ...cfg, topN: nCoin });
-      if (!list.length) throw new Error('tidak ada koin lolos filter');
-    }
-    const nowSec = Math.floor(Date.now() / 1000);
-    const endSec = Math.floor(nowSec / 300) * 300 - 300;
-    const startSec = endSec - days * 86400, warmSec = startSec - 3 * 86400;
-    const perCoinReq = Math.ceil((endSec - warmSec) / (1999 * 60)) + 1;
-    let done = 0; const totalReq = perCoinReq * list.length;
-    const tick = () => { done++; btLog('Unduh data ' + Math.min(99, Math.round(done / totalReq * 100)) + '% (' + done + ' request)'); };
-    const series = [], coverage = [];
-    let qi = 0;
-    await Promise.all([0, 1, 2].map(async () => {
-      while (qi < list.length && !btCancel) {
-        const u = list[qi++];
-        let baseSec = 60, base = await fetchBars(u.contract, 60, warmSec, endSec, tick);
-        if (!base.length || base[0].t > startSec - 86400) {
-          const b5 = await fetchBars(u.contract, 300, warmSec, endSec, tick);
-          if (b5.length && (!base.length || b5[0].t < base[0].t)) { base = b5; baseSec = 300; }
-        }
-        const funding = await fetchFunding(u.contract, u.fundingInterval, startSec, endSec);
-        series.push({ contract: u.contract, mult: u.mult, sizeMin: u.sizeMin, baseSec, base, funding });
-        coverage.push({ c: u.contract, baseSec, from: base.length ? base[0].t : null, bars: base.length, fund: funding.length });
-      }
-    }));
-    if (btCancel) throw new Error('dibatalkan');
-    const usable = series.filter(x => x.base.length > 1000);
-    if (!usable.length) throw new Error('data historis tidak tersedia');
-    const realStart = Math.max(startSec, Math.min(...usable.map(x => x.base[0].t)) + 3 * 86400);
+    const L = await btLoad();
+    const { usable, realStart, endSec, coverage, days, btc4h } = L;
     btLog('Menjalankan simulasi…');
     const r = await AT.runBacktest(usable, cfg, {
-      startMs: realStart * 1000, endMs: endSec * 1000,
+      startMs: realStart * 1000, endMs: endSec * 1000, btc4h,
       onProgress: f => btLog('Simulasi ' + Math.round(f * 100) + '%'), cancelled: () => btCancel,
     });
     if (btCancel) throw new Error('dibatalkan');
@@ -1142,16 +1104,96 @@ $('bBtRun').onclick = async () => {
     renderBt(r, coverage, days, realStart);
     btLog('Selesai: ' + r.stats.n + ' trade, ' + new Date(r.startMs).toISOString().slice(0, 10) + ' s/d ' + new Date(r.endMs).toISOString().slice(0, 10) + ' UTC');
   } catch (e) { btLog('Backtest gagal: ' + (e.message || e)); }
-  finally { $('bBtRun').disabled = false; $('bBtStop').disabled = true; }
+  finally { $('bBtRun').disabled = false; $('bBtGrid').disabled = false; $('bBtStop').disabled = true; }
 };
+async function btLoad() {
+  const days = Math.round(Number($('btDays').value)), nCoin = Math.round(Number($('btCoins').value));
+  if (!(days >= 7 && days <= 365) || !(nCoin >= 1 && nCoin <= 40)) throw new Error('Periode 7–365 hari, koin 1–40.');
+  btLog('Mengambil daftar kontrak…');
+  const [contracts, tickers] = await Promise.all([api('futures/usdt/contracts', {}), api('futures/usdt/tickers', {})]);
+  const cmap = new Map(contracts.map(c => [c.name, c]));
+  let list;
+  const manual = $('btList').value.split(/[\s,]+/).map(x => x.trim().toUpperCase()).filter(Boolean);
+  if (manual.length) {
+    const bad = manual.filter(m => !cmap.has(m));
+    if (bad.length) throw new Error('kontrak tidak ditemukan: ' + bad.join(', '));
+    list = manual.slice(0, 40).map(m => { const c = cmap.get(m); return { contract: m, mult: Number(c.quanto_multiplier), sizeMin: Math.max(1, Number(c.order_size_min) || 1), fundingInterval: Number(c.funding_interval) || 28800 }; });
+  } else {
+    list = AT.buildUniverse(contracts, tickers, { ...cfg, topN: nCoin });
+    if (!list.length) throw new Error('tidak ada koin lolos filter');
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  const endSec = Math.floor(nowSec / 300) * 300 - 300;
+  const startSec = endSec - days * 86400, warmSec = startSec - 3 * 86400;
+  const perCoinReq = Math.ceil((endSec - warmSec) / (1999 * 60)) + 1;
+  let done = 0; const totalReq = perCoinReq * list.length;
+  const tick = () => { done++; btLog('Unduh data ' + Math.min(99, Math.round(done / totalReq * 100)) + '% (' + done + ' request)'); };
+  const series = [], coverage = [];
+  let qi = 0;
+  await Promise.all([0, 1, 2].map(async () => {
+    while (qi < list.length && !btCancel) {
+      const u = list[qi++];
+      let baseSec = 60, base = await fetchBars(u.contract, 60, warmSec, endSec, tick);
+      if (!base.length || base[0].t > startSec - 86400) {
+        const b5 = await fetchBars(u.contract, 300, warmSec, endSec, tick);
+        if (b5.length && (!base.length || b5[0].t < base[0].t)) { base = b5; baseSec = 300; }
+      }
+      const funding = await fetchFunding(u.contract, u.fundingInterval, startSec, endSec);
+      series.push({ contract: u.contract, mult: u.mult, sizeMin: u.sizeMin, baseSec, base, funding });
+      coverage.push({ c: u.contract, baseSec, from: base.length ? base[0].t : null, bars: base.length, fund: funding.length });
+    }
+  }));
+  if (btCancel) throw new Error('dibatalkan');
+  const usable = series.filter(x => x.base.length > 1000);
+  if (!usable.length) throw new Error('data historis tidak tersedia');
+  const realStart = Math.max(startSec, Math.min(...usable.map(x => x.base[0].t)) + 3 * 86400);
+  let btc4h = [];
+  if (cfg.btcTrendFilter) {
+    btLog('Mengambil BTC 4h untuk filter tren…');
+    btc4h = await fetchBars('BTC_USDT', 14400, startSec - 20 * 86400, endSec, () => {});
+    if (btCancel) throw new Error('dibatalkan');
+  }
+  return { usable, realStart, endSec, coverage, days, btc4h };
+}
+$('bBtGrid').onclick = async () => {
+  btCancel = false; $('bBtRun').disabled = true; $('bBtGrid').disabled = true; $('bBtStop').disabled = false; $('bBtCsv').disabled = true; $('btRes').innerHTML = '';
+  try {
+    const { usable, realStart, endSec, days, btc4h } = await btLoad();
+    btLog('Grid + walk-forward…');
+    const g = await AT.runGrid(usable, cfg, {
+      startMs: realStart * 1000, endMs: endSec * 1000, btc4h, cancelled: () => btCancel,
+      onGridProgress: (i, n) => btLog('Grid ' + i + '/' + n + ' kombinasi'),
+    });
+    if (g.cancelled) throw new Error('dibatalkan');
+    renderGrid(g, days);
+    btLog('Grid selesai: ' + g.rows.length + ' kombinasi.');
+  } catch (e) { btLog('Grid gagal: ' + (e.message || e)); }
+  finally { $('bBtRun').disabled = false; $('bBtGrid').disabled = false; $('bBtStop').disabled = true; }
+};
+function warnHtml(n, days) { return '<div class="note dn" style="margin:8px 0">' + AT.reportWarnings(n, days, cfg).map(esc).join('<br>') + '</div>'; }
+function renderGrid(g, daysReq) {
+  const days = (g.endMs - g.startMs) / 86400000, isDays = (g.splitMs - g.startMs) / 86400000, oosDays = (g.endMs - g.splitMs) / 86400000;
+  const fp = v => Number.isFinite(v) ? (v === Infinity ? '∞' : f2(v)) : '—';
+  const best = g.rows[g.bestIS], bs = best.oos;
+  const ready = AT.goLiveOOS(bs, days);
+  let h = '<h2>Grid + walk-forward</h2><div class="kv" style="margin-bottom:8px"><span>Periode</span><b>' + days.toFixed(0) + ' hari (IS ' + isDays.toFixed(0) + ' · OOS ' + oosDays.toFixed(0) + ')</b>' +
+    '<span>Dipilih (IS saja)</span><b>SL ' + best.combo.slPct + '% · TP ' + best.combo.tpPct + '% · TS ' + best.combo.timeStopMin + 'm</b>' +
+    '<span>Trade OOS</span><b>' + bs.n + '</b><span>Go-live (OOS)</span><b>' + (ready ? '<span class="badge ok">KANDIDAT (tinjau manual)</span>' : '<span class="badge warn">NOT READY</span>') + '</b></div>';
+  h += warnHtml(bs.n, days);
+  h += '<p class="note">Kombinasi dipilih hanya dari net in-sample. Kolom OOS tidak dipakai memilih. Jangan memilih baris berdasarkan OOS: itu membatalkan pengujian.</p>';
+  h += '<div class="scroll"><table><thead><tr><th>SL%</th><th>TP%</th><th>TS m</th><th class="n">IS trade</th><th class="n">IS net</th><th class="n">IS PF</th><th class="n">OOS trade</th><th class="n">OOS net</th><th class="n">OOS PF</th></tr></thead><tbody>' +
+    g.rows.map((r, i) => '<tr' + (i === g.bestIS ? ' style="font-weight:700"' : '') + '><td>' + r.combo.slPct + '</td><td>' + r.combo.tpPct + '</td><td>' + r.combo.timeStopMin + '</td><td class="n">' + r.is.n + '</td><td class="n ' + sgn(r.is.total) + '">' + f2(r.is.total) + '</td><td class="n">' + fp(r.is.pf) + '</td><td class="n">' + r.oos.n + '</td><td class="n ' + sgn(r.oos.total) + '">' + f2(r.oos.total) + '</td><td class="n">' + fp(r.oos.pf) + '</td></tr>').join('') + '</tbody></table></div>';
+  $('btRes').innerHTML = h;
+}
 function renderBt(r, cov, days, realStart) {
   const S = r.stats;
   const k = [['Trade', S.n], ['Net', (S.total >= 0 ? '+' : '') + f2(S.total), sgn(S.total)], ['Saldo akhir', f2(r.balance), sgn(r.balance - cfg.startBalance)],
     ['Winrate', Number.isFinite(S.winrate) ? (S.winrate * 100).toFixed(1) + '%' : '—'], ['Expectancy', f2(S.exp), sgn(S.exp)], ['Profit factor', S.pf === Infinity ? '∞' : f2(S.pf)],
     ['Max DD', f2(S.mdd), S.mdd > 0 ? 'dn' : ''], ['Avg win', f2(S.avgWin), 'up'], ['Avg loss', f2(S.avgLoss), 'dn']];
   const shortCov = (realStart - (Math.floor(Date.now() / 1000) - days * 86400)) > 2 * 86400;
-  let h = '<div class="kpis">' + k.map(([a, b, c]) => '<div class="kpi"><span>' + a + '</span><b class="' + (c || '') + '">' + b + '</b></div>').join('') + '</div>';
-  h += '<div class="kv" style="margin-bottom:12px"><span>Go-live</span><b>' + (S.ready ? '<span class="badge ok">READY</span>' : '<span class="badge warn">NOT READY</span>') + '</b><span>Exit</span><b>' + (Object.entries(S.reasons).map(([a, b]) => a + ' ' + b).join(' · ') || '—') + '</b>' +
+  const period = (r.endMs - r.startMs) / 86400000;
+  let h = warnHtml(S.n, period) + '<div class="kpis">' + k.map(([a, b, c]) => '<div class="kpi"><span>' + a + '</span><b class="' + (c || '') + '">' + b + '</b></div>').join('') + '</div>';
+  h += '<div class="kv" style="margin-bottom:12px"><span>Go-live</span><b><span class="badge warn">NOT READY</span> <span class="sub">dinilai hanya dari OOS (Grid + walk-forward)' + (S.ready ? '; kriteria in-sample terpenuhi tetapi tidak cukup' : '') + '</span></b><span>Exit</span><b>' + (Object.entries(S.reasons).map(([a, b]) => a + ' ' + b).join(' · ') || '—') + '</b>' +
     (shortCov ? '<span>Catatan</span><b class="dn">histori lebih pendek dari ' + days + ' hari</b>' : '') + '</div>';
   h += '<div class="fig" style="height:220px"><svg id="btEq"></svg></div>';
   const mo = Object.entries(r.monthly).sort();
