@@ -1,7 +1,11 @@
+import os
 # UI: input API key, tanda tangan dicek ulang dengan hmac Python (cara SDK resmi Gate).
 import json, hmac, hashlib, time
 from urllib.parse import urlparse, parse_qs
 from playwright.sync_api import sync_playwright
+from pathlib import Path
+OUT = Path(__file__).resolve().parent / 'out'
+OUT.mkdir(exist_ok=True)
 KEY, SECRET = 'testkey1234ABCD', 'testsecretXYZ7890abcdef'
 seen = []
 def handle(route):
@@ -20,7 +24,7 @@ def handle(route):
     route.fulfill(status=200, content_type='application/json', body='[]')
 errors = []
 with sync_playwright() as p:
-    b = p.chromium.launch(); pg = b.new_page(viewport={'width': 1100, 'height': 900})
+    b = p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH') or None); pg = b.new_page(viewport={'width': 1100, 'height': 900})
     pg.on('pageerror', lambda e: errors.append(str(e))); pg.on('console', lambda m: m.type == 'error' and errors.append(m.text))
     pg.route('**/api/gate**', handle)
     pg.route('https://fonts.googleapis.com/**', lambda r: r.fulfill(status=200, content_type='text/css', body=''))
@@ -42,7 +46,7 @@ with sync_playwright() as p:
     assert SECRET in ls and SECRET not in ss, 'remember must move secret to localStorage'
     assert SECRET not in pg.evaluate("localStorage.getItem('autotrade10_v1') || ''"), 'secret leaked into engine state'
     pg.reload(); pg.click('#apiBox summary'); assert pg.input_value('#apiKey') == KEY and pg.input_value('#apiSecret') == ''
-    pg.screenshot(path='/tmp/api_ui.png', full_page=True)
+    pg.screenshot(path=str(OUT / 'api_ui.png'), full_page=True)
     pg.click('#bApiClear'); pg.wait_for_timeout(200)
     assert SECRET not in pg.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)')
     b.close()

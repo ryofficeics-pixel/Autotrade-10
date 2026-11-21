@@ -1,6 +1,10 @@
+import os
 import json, math, time, sys
 from urllib.parse import urlparse, parse_qs
 from playwright.sync_api import sync_playwright
+from pathlib import Path
+OUT = Path(__file__).resolve().parent / 'out'
+OUT.mkdir(exist_ok=True)
 
 NOW = time.time()
 def candles(contract, interval, limit):
@@ -43,7 +47,7 @@ state = {
 
 errors = []
 with sync_playwright() as p:
-    b = p.chromium.launch()
+    b = p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH') or None)
     for w, name in [(1280, 'desk'), (390, 'phone')]:
         pg = b.new_page(viewport={'width': w, 'height': 900})
         pg.on('console', lambda m: m.type in ('error',) and errors.append(m.text))
@@ -65,7 +69,7 @@ with sync_playwright() as p:
         sw = pg.evaluate('document.documentElement.scrollWidth')
         print(name, '| scrollWidth', sw)
         assert sw <= w + 1, 'horizontal overflow'
-        pg.screenshot(path=f'/home/claude/tests/ui_{name}.png', full_page=True)
+        pg.screenshot(path=str(OUT / f'ui_{name}.png'), full_page=True)
         # settings validation
         pg.click('summary')
         pg.fill('#c_leverage', '50'); pg.click('#bSave'); pg.wait_for_timeout(200)

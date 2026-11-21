@@ -1,7 +1,11 @@
+import os
 # UI backtest: mock histori Gate (from/to), 1 koin histori 1m pendek → fallback 5m, funding historis.
 import json, math, time, random
 from urllib.parse import urlparse, parse_qs
 from playwright.sync_api import sync_playwright
+from pathlib import Path
+OUT = Path(__file__).resolve().parent / 'out'
+OUT.mkdir(exist_ok=True)
 random.seed(3)
 NOW = int(time.time()); DAYS = 93
 COINS = {'AAA_USDT': 50.0, 'BBB_USDT': 2.0, 'CCC_USDT': 800.0}
@@ -50,7 +54,7 @@ def handle(route):
     route.fulfill(status=200, content_type='application/json', body=json.dumps(body))
 errors = []
 with sync_playwright() as p:
-    b = p.chromium.launch(); pg = b.new_page(viewport={'width': 1200, 'height': 900})
+    b = p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH') or None); pg = b.new_page(viewport={'width': 1200, 'height': 900})
     pg.on('pageerror', lambda e: errors.append(str(e))); pg.on('console', lambda m: m.type == 'error' and errors.append(m.text))
     pg.route('**/api/gate**', handle)
     pg.route('https://fonts.googleapis.com/**', lambda r: r.fulfill(status=200, content_type='text/css', body=''))
@@ -62,7 +66,7 @@ with sync_playwright() as p:
     assert st.startswith('Selesai'), st
     assert '5m' in res and '1m' in res, 'fallback 5m not shown'
     assert pg.inner_text('#kpis').find('20.00') >= 0, 'paper state touched'
-    pg.screenshot(path='/tmp/bt_ui.png', full_page=True)
+    pg.screenshot(path=str(OUT / 'bt_ui.png'), full_page=True)
     b.close()
 print('errors', errors); assert not errors
 print('BT UI PASS')

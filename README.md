@@ -58,3 +58,17 @@ atau daftar manual → Jalankan backtest. Butuh proxy (node server.js / Vercel).
 - Filter ATR minimum 0.25% baru.
 - Setelan lama tidak terbawa (kunci localStorage dinaikkan ke v2). v1 tetap ada sebagai index_v1.html.
 - Belum divalidasi. Langkah berikut: grid SL/TP/time stop + walk-forward (pilih di 2 bulan awal, uji di bulan terakhir).
+
+## Tes
+Windows PowerShell (di Linux/macOS ganti `py` dengan `python3`):
+
+    node tests/unit.test.js
+    node tests/proxy.test.js
+    node tests/e2e.test.js "" 3 10
+    $env:CHAOS=1; node tests/e2e.test.js "" 13 10; Remove-Item Env:CHAOS
+    node tests/backtest.test.js "" 7 20
+    pip install playwright; playwright install chromium
+    node server.js        # terminal lain, lalu:
+    py tests/ui_test.py; py tests/api_ui_test.py; py tests/bt_ui_test.py
+
+Screenshot UI ke `tests/out/` (di-ignore git). Opsional `CHROMIUM_PATH` untuk memakai binary Chromium sendiri.
