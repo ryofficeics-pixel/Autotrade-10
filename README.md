@@ -72,3 +72,10 @@ Windows PowerShell (di Linux/macOS ganti `py` dengan `python3`):
     py tests/ui_test.py; py tests/api_ui_test.py; py tests/bt_ui_test.py
 
 Screenshot UI ke `tests/out/` (di-ignore git). Opsional `CHROMIUM_PATH` untuk memakai binary Chromium sendiri.
+
+## Rev3 (belum divalidasi — lihat DESIGN.md untuk tingkat bukti tiap parameter)
+- **Grid + walk-forward**: tombol "Grid + walk-forward" di bagian Backtest. 18 kombinasi SL/TP/time stop (TP ≥ 2×SL), IS = 2/3 awal, OOS = 1/3 akhir, tabel penuh. Pilihan hanya dari IS; OOS tidak dipakai memilih. Bisa dibatalkan.
+- **Filter tren BTC** (`btcTrendFilter`, default 0): long hanya jika EMA 4h BTC naik, short hanya jika turun; data kurang/gagal = tidak entry. Logika sama di live dan backtest.
+- **Kejujuran laporan**: peringatan jika < 100 trade atau periode < 60 hari. Go-live tetap NOT READY kecuali kriteria lolos pada OOS (periode ≥ 60 hari) dan itupun hanya "kandidat, tinjau manual".
+- Fakta API Gate **belum diverifikasi** (jaringan sesi dev memblokir api.gateio.ws). Lihat DESIGN.md §1.
+- Tes tambahan: `BTCF=up|down node tests/backtest.test.js "" 7 20`, `GRID=1 node tests/backtest.test.js "" 7 20`, `py tests/grid_ui_test.py`.
