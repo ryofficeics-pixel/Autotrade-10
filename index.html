@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AUTOTRADE 10 Paper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/*
+VOICE: instrumen ukur, klinis, tanpa hiasan
+IDEA: lembar log trading desk
+PICTURE: kurva ekuitas + posisi aktif
+COLOUR: putih/ink, teal aksen, merah/hijau hanya untuk PnL
+TYPE/LAYOUT: Inter + mono untuk angka; KPI baris atas, kurva, posisi, tabel, log, setelan
+*/
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#0d1416);--panel:light-dark(#f4f6f7,#141d20);--ink:light-dark(#14161a,#e6ecee);--mut:light-dark(#5b6670,#8d9aa1);--line:light-dark(#dde2e5,#243135);--acc:light-dark(#0b5d63,#3fb6bd);--up:light-dark(#0f7b3f,#3ccf7c);--dn:light-dark(#b42318,#ff6b5e)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 Inter,system-ui,sans-serif;overflow-x:clip}
+.wrap{max-width:1240px;margin:0 auto;padding:20px max(4vw,14px) 60px}
+h1{font-size:28px;line-height:1.1;margin:0}
+h2{font-size:16px;margin:0 0 10px}
+.mono,td.n,.kv b{font-family:"JetBrains Mono",ui-monospace,monospace}
+.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:6px}
+.sub{color:var(--mut);font-size:13px}
+.badge{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600;border:1px solid var(--line)}
+.badge.run{background:var(--acc);color:#fff;border-color:var(--acc)}
+.badge.warn{background:var(--dn);color:#fff;border-color:var(--dn)}
+.badge.ok{background:var(--up);color:#fff;border-color:var(--up)}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+button{font:600 14px Inter,sans-serif;min-height:40px;padding:0 16px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+button:disabled{opacity:.45;cursor:default}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:0;background:var(--bg);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:16px 0}
+.kpi{background:var(--bg);padding:12px 14px;box-shadow:0 0 0 .5px var(--line)}
+.kpi span{display:block;font-size:12px;color:var(--mut)}
+.kpi b{font:600 20px "JetBrains Mono",monospace;white-space:nowrap}
+.up{color:var(--up)}.dn{color:var(--dn)}
+.grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:16px}
+@media(max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.fig{position:relative;height:240px}.fig>svg{position:absolute;inset:0;width:100%;height:100%}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px}
+.kv span{color:var(--mut)}.kv b{font-weight:500;text-align:right;white-space:nowrap}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{color:var(--mut);font-weight:500}
+td.n,th.n{text-align:right}
+.log{font:12px/1.5 "JetBrains Mono",monospace;max-height:260px;overflow:auto;white-space:pre-wrap;color:var(--mut)}
+.log .e{color:var(--dn)}.log .t{color:var(--ink)}
+.cfg{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.cfg label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mut)}
+.cfg input{font:16px "JetBrains Mono",monospace;padding:8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.note{font-size:13px;color:var(--mut);margin:8px 0 0}
+section{margin-top:16px}
+details summary{cursor:pointer;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>AUTOTRADE 10 <span class="badge">PAPER · REV 2</span></h1>
+      <div class="sub">Gate USDT-M perpetual · data publik · API key opsional (read-only) · tidak ada order sungguhan</div>
+    </div>
+    <div class="btns">
+      <button id="bStart" class="pri">Start</button>
+      <button id="bStop" disabled>Stop</button>
+      <button id="bCsv">Export CSV</button>
+      <button id="bReset">Reset</button>
+    </div>
+  </div>
+  <div class="sub" id="status">Status: berhenti</div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Kurva ekuitas (trade tertutup)</h2>
+      <div class="fig"><svg id="eq"></svg></div>
+    </div>
+    <div class="card">
+      <h2>Posisi aktif</h2>
+      <div id="pos" class="kv"></div>
+    </div>
+  </div>
+
+  <section class="card">
+    <h2>Kriteria go-live</h2>
+    <div id="golive" class="kv"></div>
+  </section>
+
+  <section class="card">
+    <h2>Riwayat trade</h2>
+    <div class="scroll"><table id="trades"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Log</h2>
+    <div class="log" id="log"></div>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Setelan strategi</summary>
+      <div class="cfg" id="cfg" style="margin-top:12px"></div>
+      <div class="btns" style="margin-top:12px"><button id="bSave">Simpan setelan</button><button id="bDefault">Kembali ke default</button></div>
+      <p class="note">Setelan baru berlaku untuk trade berikutnya. Posisi yang sedang terbuka memakai level SL/TP lamanya.</p>
+    </details>
+  </section>
+
+  <section class="card" id="btBox">
+    <h2>Backtest (data historis Gate)</h2>
+    <p class="note" style="margin-top:0">Memakai strategi & setelan yang sama dengan paper. Data 1 menit diunduh lewat proxy (fallback 5 menit jika histori 1m tidak tersedia). Hasil tidak memengaruhi saldo paper.</p>
+    <div class="cfg">
+      <label for="btDays">Periode (hari)<input id="btDays" type="number" min="7" max="365" value="90"></label>
+      <label for="btCoins">Jumlah koin (top volume, lolos filter)<input id="btCoins" type="number" min="1" max="40" value="15"></label>
+      <label for="btList">Atau daftar koin manual (koma, mis. BTC_USDT,ETH_USDT)<input id="btList" type="text" spellcheck="false"></label>
+    </div>
+    <div class="btns" style="margin-top:12px"><button id="bBtRun" class="pri">Jalankan backtest</button><button id="bBtStop" disabled>Batalkan</button><button id="bBtCsv" disabled>CSV trade backtest</button></div>
+    <div class="sub" id="btStatus" style="margin-top:8px"></div>
+    <div id="btRes"></div>
+  </section>
+
+  <section class="card">
+    <details id="apiBox">
+      <summary>API Gate (opsional)</summary>
+      <p class="note">Mode tetap <b>PAPER</b>. Key hanya dipakai untuk membaca saldo futures USDT dan fee akun, tidak pernah untuk order. Buat key dengan izin <b>read-only</b>, tanpa izin trade/withdraw, dan aktifkan IP whitelist bila memungkinkan. Secret tidak dikirim ke server mana pun: tanda tangan (HMAC-SHA512) dibuat di browser ini.</p>
+      <div class="cfg" style="margin-top:12px">
+        <label for="apiKey">API Key<input id="apiKey" type="text" autocomplete="off" spellcheck="false"></label>
+        <label for="apiSecret">API Secret<input id="apiSecret" type="password" autocomplete="new-password" spellcheck="false"></label>
+      </div>
+      <label class="note" style="display:flex;gap:8px;align-items:center"><input id="apiRemember" type="checkbox"> Ingat di browser ini (jika tidak dicentang, hilang saat tab ditutup)</label>
+      <div class="btns" style="margin-top:12px">
+        <button id="bApiSave">Simpan key</button>
+        <button id="bApiTest">Tes koneksi</button>
+        <button id="bApiClear">Hapus key</button>
+        <button id="bApiFee" disabled>Pakai fee taker akun di simulasi</button>
+      </div>
+      <div id="apiOut" class="kv" style="margin-top:12px"></div>
+    </details>
+  </section>
+
+  <p class="note">Bot hanya berjalan selama tab ini terbuka dan komputer tidak tidur. Data tersimpan di browser ini (localStorage). Semua angka disimulasikan: fill di bid/ask + slippage, fee taker, funding, dan SL dianggap kena lebih dulu jika SL dan TP berada di candle 1 menit yang sama.</p>
+</div>
+
+<script id="engine">
+{
+const DEFAULT_CFG = {
+  startBalance: 20,      // modal paper (USDT)
+  marginUsd: 5,          // margin per trade
+  leverage: 5,
+  slPct: 2,              // % gerak harga → -$0.50 pada notional $25 (rev2: dari 4)
+  tpPct: 4,              // % gerak harga → +$1 (rev2: dari 8; R:R 1:2)
+  timeStopMin: 120,      // tutup paksa setelah N menit (rev2: dari 240)
+  maxTradesDay: 6,
+  dailyLossStop: 2,      // USDT, per hari UTC
+  consecSLPause: 3,
+  pauseMin: 120,
+  topN: 30,
+  minVol24hM: 50,        // juta USDT
+  maxSpreadPct: 0.05,
+  denylist: 'DOGE,SHIB,PEPE,WIF,BONK,FLOKI,TRUMP,MEME,BOME,POPCAT,MEW,NEIRO,TURBO,BRETT,PNUT,MOODENG,GOAT,FARTCOIN,PENGU,SPX,BABYDOGE,DOGS,CAT,MOG,PEOPLE,XAU,XAG,XPT,XPD,XCU,QQQ,SPY,NVDA,TSLA,AAPL,MSFT,GOOGL,AMZN,META,AMD,INTC,ORCL,MU,SNDK,SKHY,ANT,COIN,HOOD,MSTR',
+  emaFast: 20,
+  emaSlow: 50,
+  pullbackPct: 0.3,
+  volMult: 1.5,
+  volLookback: 20,
+  atrLen: 14,
+  maxAtrPct: 1.0,
+  minAtrPct: 0.25,       // rev2: ATR 5m minimum; pasar mati → TP tidak mungkin kena
+  takerFeePct: 0.05,
+  slippagePct: 0.05,
+  minNotionalRatio: 0.6,
+  liqPct: 18,
+  glMinTrades: 100,
+  glMinPF: 1.3,
+  glMaxDD: 5,
+};
+
+const num = v => (v === null || v === undefined || v === '') ? NaN : Number(v);
+const M5 = 300000, M15 = 900000, M1 = 60000;
+
+function validateCfg(c) {
+  const e = [];
+  for (const [k, v] of Object.entries(DEFAULT_CFG)) {
+    if (typeof v === 'number' && !Number.isFinite(c[k])) e.push(k + ' harus angka');
+  }
+  if (!(c.leverage >= 1 && c.leverage <= 10)) e.push('leverage 1–10');
+  if (!(c.marginUsd > 0)) e.push('margin > 0');
+  if (!(c.startBalance >= c.marginUsd)) e.push('modal ≥ margin');
+  if (!(c.slPct > 0 && c.tpPct > 0)) e.push('SL/TP > 0');
+  if (!(c.liqPct > c.slPct)) e.push('liqPct harus > slPct');
+  if (!(c.emaSlow > c.emaFast && c.emaFast >= 2)) e.push('emaSlow > emaFast ≥ 2');
+  if (!(c.topN >= 1 && c.topN <= 100)) e.push('topN 1–100');
+  if (!(c.volLookback >= 5 && c.atrLen >= 2)) e.push('volLookback ≥ 5, atrLen ≥ 2');
+  if (!(c.timeStopMin >= 5)) e.push('timeStop ≥ 5 menit');
+  for (const k of ['maxTradesDay','consecSLPause','glMinTrades']) if (!(c[k] >= 1)) e.push(k + ' ≥ 1');
+  if (!(c.dailyLossStop > 0)) e.push('dailyLossStop > 0');
+  for (const k of ['pauseMin','minVol24hM','maxSpreadPct','pullbackPct','volMult','maxAtrPct','minAtrPct','takerFeePct','slippagePct','glMaxDD']) if (!(c[k] >= 0)) e.push(k + ' ≥ 0');
+  if (!(c.minNotionalRatio > 0 && c.minNotionalRatio <= 1)) e.push('minNotionalRatio 0–1');
+  return e;
+}
+
+function ema(vals, len) {
+  const out = new Array(vals.length).fill(NaN);
+  if (vals.length < len) return out;
+  const k = 2 / (len + 1);
+  let s = 0;
+  for (let i = 0; i < len; i++) s += vals[i];
+  let e = s / len;
+  out[len - 1] = e;
+  for (let i = len; i < vals.length; i++) { e = vals[i] * k + e * (1 - k); out[i] = e; }
+  return out;
+}
+
+function atr(c, len) {
+  const out = new Array(c.length).fill(NaN);
+  if (c.length < len + 1) return out;
+  const tr = c.map((x, i) => i === 0 ? x.h - x.l : Math.max(x.h - x.l, Math.abs(x.h - c[i - 1].c), Math.abs(x.l - c[i - 1].c)));
+  let s = 0;
+  for (let i = 1; i <= len; i++) s += tr[i];
+  let a = s / len;
+  out[len] = a;
+  for (let i = len + 1; i < c.length; i++) { a = (a * (len - 1) + tr[i]) / len; out[i] = a; }
+  return out;
+}
+
+// Gate: t = waktu buka (detik), o/h/l/c string, sum = volume quote (USDT)
+function parseCandles(raw, intervalMs, nowMs) {
+  if (!Array.isArray(raw)) throw new Error('respons candle bukan array');
+  const seen = new Set();
+  const all = [];
+  for (const r of raw) {
+    const x = { t: num(r.t), o: num(r.o), h: num(r.h), l: num(r.l), c: num(r.c), vq: num(r.sum) };
+    if (![x.t, x.o, x.h, x.l, x.c].every(Number.isFinite) || seen.has(x.t)) continue;
+    if (!Number.isFinite(x.vq)) x.vq = num(r.v) * x.c;
+    seen.add(x.t);
+    all.push(x);
+  }
+  all.sort((a, b) => a.t - b.t);
+  const closed = all.filter(x => x.t * 1000 + intervalMs <= nowMs);
+  return { all, closed };
+}
+
+function baseOf(contract) { return String(contract).split('_')[0].replace(/^\d+/, '').toUpperCase(); }
+
+function buildUniverse(contracts, tickers, cfg) {
+  const cmap = new Map((contracts || []).map(c => [c.name, c]));
+  const deny = new Set(String(cfg.denylist || '').split(/[\s,]+/).map(s => s.trim().toUpperCase()).filter(Boolean));
+  const rows = [];
+  for (const t of tickers || []) {
+    const c = cmap.get(t.contract);
+    if (!c || !String(t.contract).endsWith('_USDT')) continue;
+    if (c.in_delisting === true) continue;
+    if (c.status !== undefined && c.status !== 'trading') continue;
+    if (c.type === 'inverse') continue;
+    if (deny.has(baseOf(t.contract))) continue;
+    let vol = num(t.volume_24h_quote);
+    if (!Number.isFinite(vol)) vol = num(t.volume_24h_settle);
+    const bid = num(t.highest_bid), ask = num(t.lowest_ask);
+    const mult = num(c.quanto_multiplier);
+    if (!(vol >= cfg.minVol24hM * 1e6) || !(bid > 0) || !(ask > bid) || !(mult > 0)) continue;
+    const spreadPct = (ask - bid) / ((ask + bid) / 2) * 100;
+    if (spreadPct > cfg.maxSpreadPct) continue;
+    rows.push({
+      contract: t.contract, vol, spreadPct, mult,
+      sizeMin: Math.max(1, num(c.order_size_min) || 1),
+      fundingRate: num(t.funding_rate) || 0,
+      fundingNext: num(c.funding_next_apply) || 0,
+      fundingInterval: num(c.funding_interval) || 28800,
+    });
+  }
+  rows.sort((a, b) => b.vol - a.vol);
+  return rows.slice(0, cfg.topN);
+}
+
+// c15, c5: candle TERTUTUP saja
+function evalSignal(c15, c5, cfg) {
+  const res = { ok: false, side: 0, why: '' };
+  if (c15.length < cfg.emaSlow + 1 || c5.length < Math.max(cfg.emaFast + 2, cfg.volLookback + 2, cfg.atrLen + 2)) { res.why = 'data kurang'; return res; }
+  const cl15 = c15.map(x => x.c);
+  const f15 = ema(cl15, cfg.emaFast), s15 = ema(cl15, cfg.emaSlow);
+  const i = c15.length - 1;
+  if (f15[i] > s15[i]) res.side = 1; else if (f15[i] < s15[i]) res.side = -1;
+  if (!res.side) { res.why = 'tren datar'; return res; }
+  const f5 = ema(c5.map(x => x.c), cfg.emaFast);
+  const a5 = atr(c5, cfg.atrLen);
+  const j = c5.length - 1, c0 = c5[j], c1 = c5[j - 1];
+  res.t = c0.t; res.close = c0.c;
+  res.atrPct = a5[j] / c0.c * 100;
+  if (!(res.atrPct <= cfg.maxAtrPct)) { res.why = 'ATR tinggi'; return res; }
+  if (!(res.atrPct >= cfg.minAtrPct)) { res.why = 'ATR rendah'; return res; }
+  const vols = c5.slice(j - cfg.volLookback, j).map(x => x.vq);
+  const avg = vols.reduce((a, b) => a + b, 0) / vols.length;
+  res.volRatio = avg > 0 ? c0.vq / avg : NaN;
+  if (!(res.volRatio > cfg.volMult)) { res.why = 'volume rendah'; return res; }
+  const pb = cfg.pullbackPct / 100;
+  let touched, confirm;
+  if (res.side === 1) {
+    touched = c0.l <= f5[j] * (1 + pb) || c1.l <= f5[j - 1] * (1 + pb);
+    confirm = c0.c > c0.o && c0.c > f5[j];
+  } else {
+    touched = c0.h >= f5[j] * (1 - pb) || c1.h >= f5[j - 1] * (1 - pb);
+    confirm = c0.c < c0.o && c0.c < f5[j];
+  }
+  if (!touched) { res.why = 'tidak pullback'; return res; }
+  if (!confirm) { res.why = 'tidak konfirmasi'; return res; }
+  res.ok = true; res.why = 'sinyal';
+  return res;
+}
+
+function sizePosition(o, cfg) {
+  const slip = cfg.slippagePct / 100;
+  const ref = o.side === 1 ? o.ask : o.bid;
+  if (!(ref > 0)) return { err: 'harga bid/ask tidak valid' };
+  const entry = ref * (1 + o.side * slip);
+  const unit = entry * o.mult;
+  const target = cfg.marginUsd * cfg.leverage;
+  const qty = Math.floor(target / unit);
+  if (qty < o.sizeMin) return { err: 'ukuran kontrak minimum > target' };
+  const notional = qty * unit;
+  if (notional < target * cfg.minNotionalRatio) return { err: 'notional terlalu kecil (' + notional.toFixed(2) + ')' };
+  return {
+    symbol: o.symbol, side: o.side, qty, mult: o.mult, entry, ref, notional,
+    margin: notional / cfg.leverage,
+    entryFee: notional * cfg.takerFeePct / 100,
+    sl: entry * (1 - o.side * cfg.slPct / 100),
+    tp: entry * (1 + o.side * cfg.tpPct / 100),
+    liq: entry * (1 - o.side * cfg.liqPct / 100),
+    takerFeePct: cfg.takerFeePct, slippagePct: cfg.slippagePct,
+    timeStopMin: cfg.timeStopMin,
+    openedAt: o.now, fundingPnl: 0, fundingRate: o.fundingRate || 0,
+    nextFunding: o.fundingNext || 0, fundingInterval: o.fundingInterval || 28800,
+    lastClosedT: null, mark: entry, signal: o.signal || null,
+  };
+}
+
+// cek 1 candle 1m. Candle menit entry: hanya SL (pesimis, karena memuat harga sebelum entry).
+function checkCandle(p, k, isEntryCandle) {
+  const s = p.side;
+  const slHit = s === 1 ? k.l <= p.sl : k.h >= p.sl;
+  const tpHit = !isEntryCandle && (s === 1 ? k.h >= p.tp : k.l <= p.tp);
+  if (slHit) {
+    if (!isEntryCandle && (s === 1 ? k.o <= p.sl : k.o >= p.sl)) {
+      if (s === 1 ? k.o <= p.liq : k.o >= p.liq) return { reason: 'LIQ', px: p.liq };
+      return { reason: 'SL', px: k.o }; // gap melewati SL → fill di open
+    }
+    return { reason: 'SL', px: p.sl };
+  }
+  if (tpHit) return { reason: 'TP', px: p.tp };
+  return null;
+}
+
+function closeTrade(p, rawPx, reason, now) {
+  const slip = p.slippagePct / 100;
+  const exit = rawPx * (1 - p.side * slip);
+  const exitNotional = p.qty * p.mult * exit;
+  const exitFee = reason === 'LIQ' ? 0 : exitNotional * p.takerFeePct / 100;
+  const gross = p.side * (exit - p.entry) * p.qty * p.mult;
+  let net = gross - p.entryFee - exitFee + p.fundingPnl;
+  if (reason === 'LIQ') net = -p.margin - p.entryFee + Math.min(0, p.fundingPnl);
+  return {
+    symbol: p.symbol, side: p.side, qty: p.qty, entry: p.entry, exit, notional: p.notional,
+    openedAt: p.openedAt, closedAt: now, reason,
+    gross, fees: p.entryFee + exitFee, funding: p.fundingPnl, net,
+  };
+}
+
+function stats(trades, cfg) {
+  const n = trades.length;
+  const wins = trades.filter(t => t.net > 0), losses = trades.filter(t => t.net <= 0);
+  const sw = wins.reduce((a, t) => a + t.net, 0), sl = losses.reduce((a, t) => a + t.net, 0);
+  let eq = 0, peak = 0, mdd = 0;
+  const curve = [0];
+  for (const t of trades) { eq += t.net; curve.push(eq); peak = Math.max(peak, eq); mdd = Math.max(mdd, peak - eq); }
+  const reasons = {};
+  for (const t of trades) reasons[t.reason] = (reasons[t.reason] || 0) + 1;
+  const pf = sl < 0 ? sw / -sl : (sw > 0 ? Infinity : NaN);
+  const exp = n ? (sw + sl) / n : NaN;
+  const gl = {
+    trades: n >= cfg.glMinTrades,
+    exp: n > 0 && exp > 0,
+    pf: pf >= cfg.glMinPF,
+    dd: n > 0 && mdd <= cfg.glMaxDD,
+  };
+  return {
+    n, total: sw + sl, winrate: n ? wins.length / n : NaN,
+    avgWin: wins.length ? sw / wins.length : NaN, avgLoss: losses.length ? sl / losses.length : NaN,
+    exp, pf, mdd, curve, reasons, gl, ready: gl.trades && gl.exp && gl.pf && gl.dd,
+  };
+}
+
+const utcDay = ms => new Date(ms).toISOString().slice(0, 10);
+
+function freshState(cfg, now) {
+  return {
+    v: 1, balance: cfg.startBalance, position: null, trades: [],
+    day: { key: utcDay(now), trades: 0, pnl: 0 },
+    consecSL: 0, pauseUntil: 0, lastScanBoundary: 0, lastBlockLog: 0,
+    universe: [], universeAt: 0, errors: 0, logs: [],
+  };
+}
+
+function createEngine(opts) {
+  const api = opts.api, now = opts.now || (() => Date.now());
+  let cfg = Object.assign({}, DEFAULT_CFG, opts.cfg || {});
+  let st = opts.state || freshState(cfg, now());
+  let busy = false;
+  const onChange = opts.onChange || (() => {});
+
+  function log(msg, kind) {
+    st.logs.push({ t: now(), m: msg, k: kind || '' });
+    if (st.logs.length > 400) st.logs.splice(0, st.logs.length - 400);
+  }
+
+  function rollDay() {
+    const k = utcDay(now());
+    if (st.day.key !== k) { st.day = { key: k, trades: 0, pnl: 0 }; log('Hari UTC baru: ' + k); }
+  }
+
+  function blockReason() {
+    if (st.day.trades >= cfg.maxTradesDay) return 'batas ' + cfg.maxTradesDay + ' trade/hari tercapai';
+    if (st.day.pnl <= -cfg.dailyLossStop) return 'stop rugi harian (' + st.day.pnl.toFixed(2) + ')';
+    if (now() < st.pauseUntil) return 'jeda setelah ' + cfg.consecSLPause + ' SL beruntun';
+    if (st.balance < cfg.marginUsd) return 'saldo < margin';
+    return '';
+  }
+
+  async function refreshUniverse() {
+    const [contracts, tickers] = await Promise.all([api('futures/usdt/contracts', {}), api('futures/usdt/tickers', {})]);
+    if (!Array.isArray(contracts) || !Array.isArray(tickers)) throw new Error('respons contracts/tickers tidak valid');
+    st.universe = buildUniverse(contracts, tickers, cfg);
+    st.universeAt = now();
+    log('Universe diperbarui: ' + st.universe.length + ' kontrak (' + st.universe.slice(0, 8).map(u => u.contract).join(', ') + (st.universe.length > 8 ? ', …' : '') + ')');
+  }
+
+  async function pool(items, n, fn) {
+    const out = new Array(items.length);
+    let i = 0;
+    await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+      while (i < items.length) { const k = i++; out[k] = await fn(items[k]); }
+    }));
+    return out;
+  }
+
+  async function scan(boundary) {
+    const nowMs = now();
+    const exp5 = boundary - M5;
+    const exp15 = Math.floor(nowMs / M15) * M15 - M15;
+    const tally = {};
+    const results = await pool(st.universe, 4, async u => {
+      try {
+        const [r15, r5] = await Promise.all([
+          api('futures/usdt/candlesticks', { contract: u.contract, interval: '15m', limit: 200 }),
+          api('futures/usdt/candlesticks', { contract: u.contract, interval: '5m', limit: 200 }),
+        ]);
+        const c15 = parseCandles(r15, M15, nowMs).closed, c5 = parseCandles(r5, M5, nowMs).closed;
+        if (!c5.length || c5[c5.length - 1].t * 1000 !== exp5 || !c15.length || c15[c15.length - 1].t * 1000 !== exp15) return { u, sig: { ok: false, why: 'data basi' } };
+        return { u, sig: evalSignal(c15, c5, cfg) };
+      } catch (e) {
+        st.errors++;
+        return { u, sig: { ok: false, why: 'error' }, err: String(e.message || e) };
+      }
+    });
+    for (const r of results) tally[r.sig.why] = (tally[r.sig.why] || 0) + 1;
+    const errs = results.filter(r => r.err);
+    if (errs.length) log('Error data ' + errs.length + ' kontrak, contoh ' + errs[0].u.contract + ': ' + errs[0].err, 'e');
+    const cands = results.filter(r => r.sig.ok).sort((a, b) => b.sig.volRatio - a.sig.volRatio);
+    log('Scan ' + new Date(exp5).toISOString().slice(11, 16) + ' UTC: ' + Object.entries(tally).map(([k, v]) => k + ' ' + v).join(' · '));
+    if (!cands.length) return;
+    // re-cek blokir: posisi bisa sudah dibuka oleh tick lain (tidak mungkin karena busy, tapi aman)
+    if (st.position || blockReason()) return;
+    for (const c of cands) {
+      const ob = await api('futures/usdt/order_book', { contract: c.u.contract, limit: 1 });
+      const bid = num(ob && ob.bids && ob.bids[0] && ob.bids[0].p), ask = num(ob && ob.asks && ob.asks[0] && ob.asks[0].p);
+      if (!(bid > 0 && ask > bid)) { log(c.u.contract + ': order book tidak valid, lewati', 'e'); continue; }
+      const spr = (ask - bid) / ((ask + bid) / 2) * 100;
+      if (spr > cfg.maxSpreadPct) { log(c.u.contract + ': spread ' + spr.toFixed(3) + '% > batas, lewati'); continue; }
+      const p = sizePosition({
+        symbol: c.u.contract, side: c.sig.side, bid, ask, mult: c.u.mult, sizeMin: c.u.sizeMin, now: now(),
+        fundingRate: c.u.fundingRate, fundingNext: c.u.fundingNext, fundingInterval: c.u.fundingInterval,
+        signal: { volRatio: c.sig.volRatio, atrPct: c.sig.atrPct, t: c.sig.t },
+      }, cfg);
+      if (p.err) { log(c.u.contract + ': ' + p.err + ', lewati'); continue; }
+      st.position = p;
+      st.day.trades++;
+      log('BUKA ' + (p.side === 1 ? 'LONG ' : 'SHORT ') + p.symbol + ' qty ' + p.qty + ' @ ' + fmtPx(p.entry) + ' notional $' + p.notional.toFixed(2) + ' SL ' + fmtPx(p.sl) + ' TP ' + fmtPx(p.tp) + ' (vol×' + c.sig.volRatio.toFixed(2) + ', ATR ' + c.sig.atrPct.toFixed(2) + '%)', 't');
+      return;
+    }
+  }
+
+  function applyFundingUntil(tMs) {
+    const p = st.position;
+    while (p.nextFunding > 0 && p.nextFunding * 1000 <= tMs) {
+      if (p.nextFunding * 1000 > p.openedAt) {
+        const f = -p.side * p.notional * p.fundingRate;
+        p.fundingPnl += f;
+        log('Funding ' + p.symbol + ' rate ' + (p.fundingRate * 100).toFixed(4) + '% → ' + f.toFixed(4));
+      }
+      p.nextFunding += p.fundingInterval;
+    }
+  }
+
+  function finish(p, hit, atMs) {
+    const t = closeTrade(p, hit.px, hit.reason, Math.min(now(), atMs));
+    st.trades.push(t);
+    st.balance += t.net;
+    st.day.pnl += t.net;
+    st.position = null;
+    if (hit.reason === 'SL' || hit.reason === 'LIQ') st.consecSL++; else st.consecSL = 0;
+    log('TUTUP ' + t.symbol + ' ' + t.reason + ' @ ' + fmtPx(t.exit) + ' net ' + (t.net >= 0 ? '+' : '') + t.net.toFixed(3) + ' USDT · saldo ' + st.balance.toFixed(2), 't');
+    if (st.consecSL >= cfg.consecSLPause) {
+      st.pauseUntil = now() + cfg.pauseMin * M1;
+      st.consecSL = 0;
+      log('Jeda ' + cfg.pauseMin + ' menit setelah ' + cfg.consecSLPause + ' SL beruntun');
+    }
+  }
+
+  async function manage() {
+    const p = st.position;
+    const nowMs = now();
+    const entryMin = Math.floor(p.openedAt / M1) * M1;
+    const since = p.lastClosedT !== null ? (p.lastClosedT + 60) * 1000 : entryMin;
+    const limit = Math.min(1000, Math.max(5, Math.ceil((nowMs - since) / M1) + 3));
+    const raw = await api('futures/usdt/candlesticks', { contract: p.symbol, interval: '1m', limit });
+    const { all } = parseCandles(raw, M1, nowMs);
+    const deadline = p.openedAt + p.timeStopMin * M1;
+    for (const k of all) {
+      const tMs = k.t * 1000;
+      if (tMs < entryMin || (p.lastClosedT !== null && k.t <= p.lastClosedT)) continue;
+      applyFundingUntil(tMs);
+      if (tMs >= deadline) { finish(p, { reason: 'TIME', px: k.o }, tMs); return; }
+      const hit = checkCandle(p, k, tMs === entryMin);
+      if (hit) { finish(p, hit, tMs + M1); return; }
+      if (tMs + M1 <= nowMs) p.lastClosedT = k.t;
+      p.mark = k.c;
+    }
+    try {
+      const tk = await api('futures/usdt/tickers', { contract: p.symbol });
+      const t0 = Array.isArray(tk) ? tk[0] : null;
+      if (t0) {
+        const fr = num(t0.funding_rate); if (Number.isFinite(fr)) p.fundingRate = fr;
+        const mk = num(t0.last); if (mk > 0) p.mark = mk;
+      }
+    } catch (e) { st.errors++; log('Ticker gagal: ' + (e.message || e), 'e'); }
+  }
+
+  async function tick() {
+    if (busy) return;
+    busy = true;
+    try {
+      rollDay();
+      if (!st.universe.length || now() - st.universeAt > 3600000) {
+        try { await refreshUniverse(); }
+        catch (e) { st.errors++; log('Gagal ambil universe: ' + (e.message || e), 'e'); if (!st.universe.length) return; }
+      }
+      if (st.position) { await manage(); return; }
+      const nowMs = now();
+      const boundary = Math.floor(nowMs / M5) * M5;
+      if (boundary === st.lastScanBoundary) return;
+      const age = nowMs - boundary;
+      if (age < 8000) return;
+      st.lastScanBoundary = boundary;
+      if (age > 240000) { log('Lewati scan (terlambat ' + Math.round(age / 1000) + ' dtk, tab/komputer sempat tidur?)'); return; }
+      const br = blockReason();
+      if (br) { if (now() - st.lastBlockLog > 30 * M1) { log('Tidak entry: ' + br); st.lastBlockLog = now(); } return; }
+      await scan(boundary);
+    } catch (e) {
+      st.errors++;
+      log('Error: ' + (e.message || e), 'e');
+    } finally {
+      busy = false;
+      onChange(st);
+    }
+  }
+
+  return {
+    tick, log,
+    get state() { return st; },
+    get cfg() { return cfg; },
+    setCfg(c) { cfg = Object.assign({}, DEFAULT_CFG, c); },
+    reset() { st = freshState(cfg, now()); log('Reset. Modal paper ' + cfg.startBalance + ' USDT'); onChange(st); },
+    stats: () => stats(st.trades, cfg),
+    blockReason,
+    nextScanAt() { const b = Math.floor(now() / M5) * M5; return (b === st.lastScanBoundary ? b + M5 : b) + 8000; },
+  };
+}
+
+// ===== BACKTEST (logika sama dengan engine live) =====
+function aggregate(base, tfSec) {
+  const out = [];
+  for (const b of base) {
+    const k = Math.floor(b.t / tfSec) * tfSec;
+    const last = out[out.length - 1];
+    if (last && last.t === k) { if (b.h > last.h) last.h = b.h; if (b.l < last.l) last.l = b.l; last.c = b.c; last.vq += b.vq; }
+    else out.push({ t: k, o: b.o, h: b.h, l: b.l, c: b.c, vq: b.vq });
+  }
+  return out;
+}
+
+// series: [{contract, mult, sizeMin, baseSec(60|300), base:[{t,o,h,l,c,vq}], funding:[{t,r}]}]
+// o: {startMs, endMs, halfSpreadPct, onProgress(frac), yieldEvery}
+async function runBacktest(series, cfg, o) {
+  const W = 200, halfSpread = (o.halfSpreadPct != null ? o.halfSpreadPct : cfg.maxSpreadPct / 2) / 100;
+  const coins = series.filter(s => s.base && s.base.length).map(s => {
+    const c5 = aggregate(s.base, 300), c15 = aggregate(s.base, 900);
+    const lastEnd = (s.base[s.base.length - 1].t + s.baseSec) * 1000;
+    const i5 = new Map(), i15 = new Map(), ib = new Map();
+    c5.forEach((x, i) => { if ((x.t + 300) * 1000 <= lastEnd) i5.set(x.t, i); });
+    c15.forEach((x, i) => { if ((x.t + 900) * 1000 <= lastEnd) i15.set(x.t, i); });
+    s.base.forEach((x, i) => ib.set(x.t, i));
+    const fund = (s.funding || []).map(f => ({ t: num(f.t), r: num(f.r) })).filter(f => Number.isFinite(f.t) && Number.isFinite(f.r)).sort((a, b) => a.t - b.t);
+    return { ...s, c5, c15, i5, i15, ib, fund };
+  });
+  const trades = [], dayTrades = {}, dayPnl = {};
+  let balance = cfg.startBalance, pos = null, consec = 0, pauseUntil = 0;
+  const stepMs = 300000;
+  const B0 = Math.ceil(o.startMs / stepMs) * stepMs, B1 = Math.floor(o.endMs / stepMs) * stepMs;
+  const total = Math.max(1, (B1 - B0) / stepMs);
+  let n = 0, evals = 0;
+
+  function close(hit, atMs) {
+    const t = closeTrade(pos.p, hit.px, hit.reason, atMs);
+    trades.push(t);
+    balance += t.net;
+    const dk = utcDay(atMs);
+    dayPnl[dk] = (dayPnl[dk] || 0) + t.net;
+    if (hit.reason === 'SL' || hit.reason === 'LIQ') consec++; else consec = 0;
+    if (consec >= cfg.consecSLPause) { pauseUntil = atMs + cfg.pauseMin * M1; consec = 0; }
+    pos = null;
+  }
+  // proses bar exit dengan waktu mulai < untilMs
+  function advance(untilMs) {
+    const c = pos.coin, p = pos.p, bars = c.base, bMs = c.baseSec * 1000;
+    const deadline = p.openedAt + p.timeStopMin * M1;
+    while (pos && pos.i < bars.length && bars[pos.i].t * 1000 < untilMs) {
+      const k = bars[pos.i], tMs = k.t * 1000;
+      while (pos.fi < c.fund.length && c.fund[pos.fi].t * 1000 <= tMs) {
+        const f = c.fund[pos.fi];
+        if (f.t * 1000 > p.openedAt) p.fundingPnl += -p.side * p.notional * f.r;
+        pos.fi++;
+      }
+      if (tMs >= deadline) { close({ reason: 'TIME', px: k.o }, tMs); return; }
+      const hit = checkCandle(p, k, tMs === pos.entryBar);
+      if (hit) { close(hit, tMs + bMs); return; }
+      pos.i++;
+    }
+  }
+
+  for (let B = B0; B <= B1; B += stepMs) {
+    if (pos) advance(B);
+    if (!pos) {
+      const dk = utcDay(B);
+      const blocked = (dayTrades[dk] || 0) >= cfg.maxTradesDay || (dayPnl[dk] || 0) <= -cfg.dailyLossStop || B + 8000 < pauseUntil || balance < cfg.marginUsd;
+      if (!blocked) {
+        const t5 = B / 1000 - 300, t15 = Math.floor(B / 900000) * 900 - 900;
+        const cands = [];
+        for (const c of coins) {
+          const j5 = c.i5.get(t5), j15 = c.i15.get(t15);
+          if (j5 === undefined || j15 === undefined) continue;
+          evals++;
+          const sig = evalSignal(c.c15.slice(Math.max(0, j15 - W + 1), j15 + 1), c.c5.slice(Math.max(0, j5 - W + 1), j5 + 1), cfg);
+          if (sig.ok) cands.push({ c, sig });
+        }
+        cands.sort((a, b) => b.sig.volRatio - a.sig.volRatio);
+        for (const { c, sig } of cands) {
+          const bi = c.ib.get(B / 1000);
+          if (bi === undefined) continue;
+          const mid = c.base[bi].o;
+          const p = sizePosition({ symbol: c.contract, side: sig.side, bid: mid * (1 - halfSpread), ask: mid * (1 + halfSpread), mult: c.mult, sizeMin: c.sizeMin, now: B + 8000, signal: { volRatio: sig.volRatio, atrPct: sig.atrPct, t: sig.t } }, cfg);
+          if (p.err) continue;
+          let fi = 0; while (fi < c.fund.length && c.fund[fi].t * 1000 <= B) fi++;
+          pos = { p, coin: c, i: bi, fi, entryBar: B };
+          dayTrades[dk] = (dayTrades[dk] || 0) + 1;
+          break;
+        }
+      }
+    }
+    if (++n % (o.yieldEvery || 1500) === 0) { if (o.onProgress) o.onProgress(n / total); await new Promise(r => setTimeout(r, 0)); if (o.cancelled && o.cancelled()) break; }
+  }
+  if (pos) advance(B1 + stepMs);
+  if (pos) { const bars = pos.coin.base; const last = bars[Math.min(pos.i, bars.length - 1)]; close({ reason: 'END', px: last.c }, (last.t + pos.coin.baseSec) * 1000); }
+  if (o.onProgress) o.onProgress(1);
+
+  const S = stats(trades, cfg);
+  const perCoin = {}, monthly = {};
+  for (const t of trades) {
+    const a = perCoin[t.symbol] || (perCoin[t.symbol] = { n: 0, win: 0, net: 0 });
+    a.n++; if (t.net > 0) a.win++; a.net += t.net;
+    const m = new Date(t.closedAt).toISOString().slice(0, 7);
+    const b = monthly[m] || (monthly[m] = { n: 0, win: 0, net: 0 });
+    b.n++; if (t.net > 0) b.win++; b.net += t.net;
+  }
+  return { trades, stats: S, perCoin, monthly, balance, evals, startMs: B0, endMs: B1 };
+}
+
+function fmtPx(x) {
+  if (!Number.isFinite(x)) return '—';
+  const a = Math.abs(x);
+  const d = a >= 1000 ? 2 : a >= 1 ? 4 : a >= 0.01 ? 6 : 8;
+  return x.toFixed(d);
+}
+
+const AT = { aggregate, runBacktest, DEFAULT_CFG, validateCfg, ema, atr, parseCandles, baseOf, buildUniverse, evalSignal, sizePosition, checkCandle, closeTrade, stats, createEngine, freshState, fmtPx, utcDay };
+if (typeof window !== 'undefined') window.AT = AT;
+if (typeof module !== 'undefined') module.exports = AT;
+}
+</script>
+
+<script id="ui">
+{
+const AT = window.AT;
+const $ = id => document.getElementById(id);
+const KEY = 'autotrade10_v1';
+const CFG_KEY = 'autotrade10_cfg_v2';
+const DIRECT = 'https://api.gateio.ws/api/v4/';
+
+function load(k) { try { const s = localStorage.getItem(k); return s ? JSON.parse(s) : null; } catch { return null; } }
+function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+
+let mode = location.protocol === 'file:' ? 'direct' : 'auto';
+async function getJson(url) {
+  const r = await fetch(url, { headers: { Accept: 'application/json' } });
+  const text = await r.text();
+  let body;
+  try { body = JSON.parse(text); } catch { const e = new Error('bukan JSON (HTTP ' + r.status + ')'); e.nonJson = true; throw e; }
+  if (!r.ok) { const e = new Error((body && (body.message || body.label)) || ('HTTP ' + r.status)); e.status = r.status; throw e; }
+  return body;
+}
+async function api(path, params) {
+  const qs = new URLSearchParams(params).toString();
+  if (mode !== 'direct') {
+    try {
+      const b = await getJson('/api/gate?path=' + encodeURIComponent(path) + (qs ? '&' + qs : ''));
+      mode = 'proxy';
+      return b;
+    } catch (e) {
+      if (mode === 'proxy' || (e.status && e.status !== 404)) throw e;
+      mode = 'direct';
+    }
+  }
+  try { return await getJson(DIRECT + path + (qs ? '?' + qs : '')); }
+  catch (e) { if (e instanceof TypeError) throw new Error('fetch langsung ke Gate diblokir (CORS/jaringan). Jalankan via "node server.js" atau Vercel.'); throw e; }
+}
+
+let cfg = Object.assign({}, AT.DEFAULT_CFG, load(CFG_KEY) || {});
+let state = load(KEY);
+if (state && state.v !== 1) state = null;
+const eng = AT.createEngine({ api, cfg, state, onChange: s => { save(KEY, s); render(); } });
+if (!state) eng.log('Siap. Modal paper ' + cfg.startBalance + ' USDT. Tekan Start.');
+if (eng.state.position) eng.log('Posisi terbuka dipulihkan: ' + eng.state.position.symbol + '. Tekan Start untuk lanjut memantau.');
+
+let timer = null, wake = null, resetArm = 0;
+async function start() {
+  if (timer) return;
+  timer = setInterval(() => eng.tick(), 10000);
+  $('bStart').disabled = true; $('bStop').disabled = false;
+  eng.log('Start'); eng.tick();
+  try { if (navigator.wakeLock) wake = await navigator.wakeLock.request('screen'); } catch {}
+  render();
+}
+function stop() {
+  clearInterval(timer); timer = null;
+  $('bStart').disabled = false; $('bStop').disabled = true;
+  try { wake && wake.release(); } catch {} wake = null;
+  eng.log('Stop'); save(KEY, eng.state); render();
+}
+$('bStart').onclick = start;
+$('bStop').onclick = stop;
+$('bReset').onclick = () => {
+  if (Date.now() - resetArm > 4000) { resetArm = Date.now(); $('bReset').textContent = 'Klik lagi untuk reset'; setTimeout(() => $('bReset').textContent = 'Reset', 4000); return; }
+  resetArm = 0; $('bReset').textContent = 'Reset';
+  if (timer) stop();
+  eng.reset();
+};
+$('bCsv').onclick = async () => {
+  const h = ['symbol','side','qty','entry','exit','notional','opened_utc','closed_utc','reason','gross','fees','funding','net'];
+  const rows = eng.state.trades.map(t => [t.symbol, t.side === 1 ? 'LONG' : 'SHORT', t.qty, t.entry, t.exit, t.notional.toFixed(4), new Date(t.openedAt).toISOString(), new Date(t.closedAt).toISOString(), t.reason, t.gross.toFixed(6), t.fees.toFixed(6), t.funding.toFixed(6), t.net.toFixed(6)].join(','));
+  const csv = [h.join(','), ...rows].join('\n');
+  try {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'autotrade10_trades.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+  } catch {}
+  try { await navigator.clipboard.writeText(csv); eng.log('CSV juga disalin ke clipboard'); } catch {}
+  render();
+};
+
+const LABELS = {
+  startBalance: 'Modal paper (USDT)', marginUsd: 'Margin per trade (USDT)', leverage: 'Leverage (×)', slPct: 'Stop loss (% harga)', tpPct: 'Take profit (% harga)',
+  timeStopMin: 'Time stop (menit)', maxTradesDay: 'Maks trade/hari', dailyLossStop: 'Stop rugi harian (USDT)', consecSLPause: 'SL beruntun → jeda', pauseMin: 'Lama jeda (menit)',
+  topN: 'Top N kontrak by volume', minVol24hM: 'Volume 24j min (juta USDT)', maxSpreadPct: 'Spread maks (%)', denylist: 'Denylist base (koma)',
+  emaFast: 'EMA cepat', emaSlow: 'EMA lambat', pullbackPct: 'Jarak pullback ke EMA (%)', volMult: 'Volume > rata² ×', volLookback: 'Rata² volume (candle)',
+  atrLen: 'ATR periode', maxAtrPct: 'ATR 5m maks (% harga)', minAtrPct: 'ATR 5m min (% harga)', takerFeePct: 'Fee taker (% per sisi)', slippagePct: 'Slippage (% per sisi)',
+  minNotionalRatio: 'Notional min (rasio target)', liqPct: 'Likuidasi (% harga)', glMinTrades: 'Go-live: min trade', glMinPF: 'Go-live: min profit factor', glMaxDD: 'Go-live: max drawdown (USDT)',
+};
+function renderCfg() {
+  $('cfg').innerHTML = Object.keys(AT.DEFAULT_CFG).map(k => {
+    const isText = typeof AT.DEFAULT_CFG[k] === 'string';
+    return '<label for="c_' + k + '">' + LABELS[k] + '<input id="c_' + k + '" ' + (isText ? 'type="text"' : 'type="number" step="any" inputmode="decimal"') + ' value="' + String(cfg[k]).replace(/"/g, '&quot;') + '"></label>';
+  }).join('');
+}
+$('bSave').onclick = () => {
+  const c = {};
+  for (const k of Object.keys(AT.DEFAULT_CFG)) {
+    const v = $('c_' + k).value;
+    c[k] = typeof AT.DEFAULT_CFG[k] === 'string' ? v : Number(v);
+  }
+  const errs = AT.validateCfg(c);
+  if (errs.length) { eng.log('Setelan ditolak: ' + errs.join('; '), 'e'); render(); return; }
+  const balChanged = c.startBalance !== cfg.startBalance;
+  cfg = c; save(CFG_KEY, cfg); eng.setCfg(cfg);
+  eng.state.universeAt = 0;
+  eng.log('Setelan disimpan' + (balChanged ? '. Modal baru berlaku setelah Reset.' : ''));
+  render();
+};
+$('bDefault').onclick = () => { cfg = Object.assign({}, AT.DEFAULT_CFG); renderCfg(); eng.log('Default dimuat ke form. Tekan Simpan untuk menerapkan.'); render(); };
+
+const f2 = x => Number.isFinite(x) ? x.toFixed(2) : '—';
+const sgn = x => !Number.isFinite(x) ? '' : x > 0 ? 'up' : x < 0 ? 'dn' : '';
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const hm = ms => new Date(ms).toISOString().replace('T', ' ').slice(5, 16);
+
+function unreal(p) {
+  if (!p || !Number.isFinite(p.mark)) return NaN;
+  const exitFee = p.qty * p.mult * p.mark * p.takerFeePct / 100;
+  return p.side * (p.mark - p.entry) * p.qty * p.mult - p.entryFee - exitFee + p.fundingPnl;
+}
+
+function render() {
+  const s = eng.state, S = eng.stats(), p = s.position;
+  const u = unreal(p);
+  const equity = s.balance + (Number.isFinite(u) ? u : 0);
+  const k = [
+    ['Saldo', f2(s.balance), ''], ['Ekuitas', f2(equity), sgn(equity - cfg.startBalance)],
+    ['PnL total', (S.total >= 0 ? '+' : '') + f2(S.total), sgn(S.total)], ['Trade', S.n, ''],
+    ['Winrate', Number.isFinite(S.winrate) ? (S.winrate * 100).toFixed(1) + '%' : '—', ''],
+    ['Expectancy', f2(S.exp), sgn(S.exp)], ['Profit factor', S.pf === Infinity ? '∞' : f2(S.pf), ''],
+    ['Max DD', f2(S.mdd), S.mdd > 0 ? 'dn' : ''], ['Hari ini', s.day.trades + ' tr · ' + f2(s.day.pnl), sgn(s.day.pnl)],
+  ];
+  $('kpis').innerHTML = k.map(([a, b, c]) => '<div class="kpi"><span>' + a + '</span><b class="' + c + '">' + b + '</b></div>').join('');
+
+  const br = eng.blockReason();
+  const nx = timer && !p ? Math.max(0, Math.round((eng.nextScanAt() - Date.now()) / 1000)) : null;
+  $('status').innerHTML = (timer ? '<span class="badge run">BERJALAN</span>' : '<span class="badge">BERHENTI</span>') +
+    ' · data: ' + (mode === 'proxy' ? 'proxy' : mode === 'direct' ? 'langsung ke Gate' : 'auto') +
+    ' · universe ' + s.universe.length +
+    (nx !== null ? ' · scan berikut ±' + nx + ' dtk' : '') +
+    (br ? ' · <span class="badge warn">' + esc(br) + '</span>' : '') +
+    (s.errors ? ' · error ' + s.errors : '');
+
+  if (p) {
+    const left = Math.max(0, p.openedAt + p.timeStopMin * 60000 - Date.now());
+    const rows = [
+      ['Kontrak', p.symbol], ['Arah', p.side === 1 ? 'LONG' : 'SHORT'], ['Qty (kontrak)', p.qty],
+      ['Entry', AT.fmtPx(p.entry)], ['Harga kini', AT.fmtPx(p.mark)], ['Stop loss', AT.fmtPx(p.sl)], ['Take profit', AT.fmtPx(p.tp)],
+      ['Notional', '$' + f2(p.notional)], ['Margin', '$' + f2(p.margin)], ['Funding', p.fundingPnl.toFixed(4)],
+      ['PnL berjalan', '<span class="' + sgn(u) + '">' + (u >= 0 ? '+' : '') + f2(u) + '</span>'], ['Time stop', Math.ceil(left / 60000) + ' mnt lagi'], ['Dibuka', hm(p.openedAt) + ' UTC'],
+    ];
+    $('pos').innerHTML = rows.map(([a, b]) => '<span>' + a + '</span><b>' + b + '</b>').join('');
+  } else {
+    $('pos').innerHTML = '<span>Tidak ada posisi</span><b></b>';
+  }
+
+  const g = S.gl;
+  const yes = v => v ? '<span class="up">✓</span>' : '<span class="dn">✗</span>';
+  $('golive').innerHTML = [
+    ['Trade ≥ ' + cfg.glMinTrades, S.n + ' ' + yes(g.trades)], ['Expectancy > 0', f2(S.exp) + ' ' + yes(g.exp)],
+    ['Profit factor ≥ ' + cfg.glMinPF, (S.pf === Infinity ? '∞' : f2(S.pf)) + ' ' + yes(g.pf)], ['Max DD ≤ ' + cfg.glMaxDD, f2(S.mdd) + ' ' + yes(g.dd)],
+    ['Status', S.ready ? '<span class="badge ok">READY</span>' : '<span class="badge warn">NOT READY</span>'],
+    ['Exit', Object.entries(S.reasons).map(([a, b]) => a + ' ' + b).join(' · ') || '—'],
+  ].map(([a, b]) => '<span>' + a + '</span><b>' + b + '</b>').join('');
+
+  const tr = s.trades.slice(-200).reverse();
+  $('trades').innerHTML = '<thead><tr><th>Tutup (UTC)</th><th>Kontrak</th><th>Arah</th><th class="n">Entry</th><th class="n">Exit</th><th>Exit</th><th class="n">Fee</th><th class="n">Funding</th><th class="n">Net</th></tr></thead><tbody>' +
+    (tr.length ? tr.map(t => '<tr><td>' + hm(t.closedAt) + '</td><td>' + esc(t.symbol) + '</td><td>' + (t.side === 1 ? 'LONG' : 'SHORT') + '</td><td class="n">' + AT.fmtPx(t.entry) + '</td><td class="n">' + AT.fmtPx(t.exit) + '</td><td>' + t.reason + '</td><td class="n">' + t.fees.toFixed(3) + '</td><td class="n">' + t.funding.toFixed(3) + '</td><td class="n ' + sgn(t.net) + '">' + (t.net >= 0 ? '+' : '') + t.net.toFixed(3) + '</td></tr>').join('')
+      : '<tr><td colspan="9">Belum ada trade.</td></tr>') + '</tbody>';
+
+  const L = $('log');
+  const atBottom = L.scrollHeight - L.scrollTop - L.clientHeight < 30;
+  L.innerHTML = s.logs.slice(-200).map(l => '<div class="' + l.k + '">' + new Date(l.t).toISOString().slice(5, 19).replace('T', ' ') + '  ' + esc(l.m) + '</div>').join('');
+  if (atBottom) L.scrollTop = L.scrollHeight;
+  drawEq(S.curve);
+}
+
+const svg = $('eq');
+let lastCurve = [0];
+function drawEq(curve) {
+  lastCurve = curve;
+  const W = svg.clientWidth, H = svg.clientHeight;
+  if (!W || !H) return;
+  const pts = curve.map(v => cfg.startBalance + v);
+  const lo = Math.min(...pts, cfg.startBalance - 1), hi = Math.max(...pts, cfg.startBalance + 1);
+  const pl = 44, pr = 10, pt = 10, pb = 22;
+  const x = i => pl + (pts.length > 1 ? i / (pts.length - 1) : 0) * (W - pl - pr);
+  const y = v => pt + (hi - v) / (hi - lo) * (H - pt - pb);
+  const ticks = [lo, cfg.startBalance, hi].filter((v, i, a) => i === 0 || a.slice(0, i).every(w => Math.abs(y(w) - y(v)) > 14));
+  let h = ticks.map(v => '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--line)"/><text x="' + (pl - 6) + '" y="' + (y(v) + 4) + '" font-size="11" text-anchor="end" fill="var(--mut)">' + v.toFixed(1) + '</text>').join('');
+  h += '<polyline fill="none" stroke="var(--acc)" stroke-width="2" points="' + pts.map((v, i) => x(i) + ',' + y(v)).join(' ') + '"/>';
+  h += '<text x="' + (W - pr) + '" y="' + (H - 6) + '" font-size="11" text-anchor="end" fill="var(--mut)">' + (pts.length - 1) + ' trade</text>';
+  svg.innerHTML = h;
+}
+const ro = new ResizeObserver(() => drawEq(lastCurve));
+ro.observe(svg);
+
+// ===== API key (read-only) =====
+const CRED_KEY = 'autotrade10_cred_v1';
+function loadCred() {
+  for (const st of [sessionStorage, localStorage]) { try { const v = st.getItem(CRED_KEY); if (v) return JSON.parse(v); } catch {} }
+  return null;
+}
+function storeCred(c, remember) {
+  try { sessionStorage.removeItem(CRED_KEY); localStorage.removeItem(CRED_KEY); } catch {}
+  if (!c) return;
+  try { (remember ? localStorage : sessionStorage).setItem(CRED_KEY, JSON.stringify(c)); } catch {}
+}
+const toHex = buf => Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
+async function gateSign(secret, method, path, query, body, ts) {
+  if (!(window.crypto && crypto.subtle)) throw new Error('WebCrypto tidak tersedia. Buka lewat https (Vercel) atau http://localhost.');
+  const enc = new TextEncoder();
+  const bodyHash = toHex(await crypto.subtle.digest('SHA-512', enc.encode(body || '')));
+  const payload = [method, '/api/v4/' + path, query || '', bodyHash, ts].join('\n');
+  const k = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']);
+  return toHex(await crypto.subtle.sign('HMAC', k, enc.encode(payload)));
+}
+window.gateSign = gateSign;
+async function privateGet(path, cred) {
+  const ts = String(Math.floor(Date.now() / 1000));
+  const sign = await gateSign(cred.secret, 'GET', path, '', '', ts);
+  let r;
+  try { r = await fetch('/api/gate?path=' + encodeURIComponent(path), { headers: { Accept: 'application/json', 'X-Gate-Key': cred.key, 'X-Gate-Ts': ts, 'X-Gate-Sign': sign } }); }
+  catch { throw new Error('proxy tidak terjangkau. Jalankan via "node server.js" atau Vercel.'); }
+  const text = await r.text();
+  let b; try { b = JSON.parse(text); } catch { throw new Error('proxy tidak tersedia (HTTP ' + r.status + '). Jalankan via "node server.js" atau Vercel.'); }
+  if (!r.ok) throw new Error((b.label ? b.label + ': ' : '') + (b.message || 'HTTP ' + r.status));
+  return b;
+}
+const mask = k => k.length <= 8 ? '••••' : k.slice(0, 4) + '••••' + k.slice(-4);
+let acctFee = null;
+function apiOut(rows) { $('apiOut').innerHTML = rows.map(([a, b]) => '<span>' + a + '</span><b>' + b + '</b>').join(''); }
+function apiInit() {
+  const c = loadCred();
+  let remembered = false; try { remembered = !!localStorage.getItem(CRED_KEY); } catch {}
+  $('apiRemember').checked = remembered;
+  if (c) { $('apiKey').value = c.key; $('apiSecret').value = ''; $('apiSecret').placeholder = 'tersimpan (kosongkan untuk tetap)'; apiOut([['Key', mask(c.key)], ['Penyimpanan', remembered ? 'browser ini (permanen)' : 'tab ini saja']]); }
+  else apiOut([['Key', 'belum diisi']]);
+}
+function readCredForm() {
+  const key = $('apiKey').value.trim(), sec = $('apiSecret').value.trim();
+  const old = loadCred();
+  const secret = sec || (old && old.key === key ? old.secret : '');
+  if (!/^[A-Za-z0-9]{8,128}$/.test(key)) throw new Error('API Key tidak valid');
+  if (!/^[A-Za-z0-9]{8,256}$/.test(secret)) throw new Error('API Secret kosong/tidak valid');
+  return { key, secret };
+}
+$('bApiSave').onclick = () => {
+  try { const c = readCredForm(); storeCred(c, $('apiRemember').checked); apiInit(); eng.log('API key disimpan (' + mask(c.key) + ')'); }
+  catch (e) { eng.log('API: ' + e.message, 'e'); }
+  render();
+};
+$('bApiClear').onclick = () => {
+  storeCred(null); $('apiKey').value = ''; $('apiSecret').value = ''; $('apiSecret').placeholder = ''; acctFee = null; $('bApiFee').disabled = true;
+  apiInit(); eng.log('API key dihapus dari browser'); render();
+};
+$('bApiTest').onclick = async () => {
+  let c;
+  try { c = readCredForm(); } catch (e) { apiOut([['Error', esc(e.message)]]); return; }
+  $('bApiTest').disabled = true; apiOut([['Status', 'menghubungi Gate…']]);
+  const rows = [['Key', mask(c.key)]];
+  try {
+    const a = await privateGet('futures/usdt/accounts', c);
+    rows.push(['Saldo futures total', f2(Number(a.total)) + ' ' + esc(a.currency || 'USDT')], ['Available', f2(Number(a.available))], ['Unrealised PnL', f2(Number(a.unrealised_pnl))]);
+  } catch (e) { rows.push(['Saldo futures', '<span class="dn">' + esc(e.message) + '</span>']); }
+  try {
+    const f = await privateGet('wallet/fee', c);
+    const tk = Number(f.futures_taker_fee), mk = Number(f.futures_maker_fee);
+    rows.push(['Fee futures taker', Number.isFinite(tk) ? (tk * 100).toFixed(4) + '%' : '—'], ['Fee futures maker', Number.isFinite(mk) ? (mk * 100).toFixed(4) + '%' : '—']);
+    acctFee = Number.isFinite(tk) && tk >= 0 ? tk * 100 : null;
+  } catch (e) { rows.push(['Fee akun', '<span class="dn">' + esc(e.message) + '</span>']); acctFee = null; }
+  $('bApiFee').disabled = acctFee === null;
+  rows.push(['Fee di simulasi', cfg.takerFeePct + '%']);
+  apiOut(rows); $('bApiTest').disabled = false;
+};
+$('bApiFee').onclick = () => {
+  if (acctFee === null) return;
+  cfg = Object.assign({}, cfg, { takerFeePct: Number(acctFee.toFixed(4)) });
+  save(CFG_KEY, cfg); eng.setCfg(cfg); renderCfg();
+  eng.log('Fee taker simulasi diset ke fee akun: ' + cfg.takerFeePct + '%'); render();
+};
+
+// ===== Backtest UI =====
+let btCancel = false, btLast = null;
+const btLog = m => { $('btStatus').textContent = m; };
+async function fetchBars(contract, ivSec, fromSec, toSec, tick) {
+  const iv = ivSec === 60 ? '1m' : '5m', step = 1999 * ivSec, rows = [];
+  let fails = 0;
+  for (let to = toSec; to > fromSec && !btCancel; to -= step + ivSec) {
+    const from = Math.max(fromSec, to - step);
+    let r;
+    try { r = await api('futures/usdt/candlesticks', { contract, interval: iv, from, to }); fails = 0; }
+    catch (e) { if (++fails >= 3) { if (rows.length) break; throw e; } to += step + ivSec; await new Promise(z => setTimeout(z, 1500)); continue; }
+    tick();
+    if (!Array.isArray(r) || !r.length) break;
+    for (const x of r) rows.push(x);
+  }
+  return AT.parseCandles(rows, ivSec * 1000, toSec * 1000 + ivSec * 1000).closed;
+}
+async function fetchFunding(contract, intervalSec, fromSec, toSec) {
+  const out = [], span = 90 * (intervalSec || 28800);
+  for (let f = fromSec; f < toSec && !btCancel; f += span) {
+    try { const r = await api('futures/usdt/funding_rate', { contract, from: f, to: Math.min(toSec, f + span - 1) }); if (Array.isArray(r)) out.push(...r); }
+    catch { /* funding opsional: lanjut tanpa */ }
+  }
+  return out;
+}
+$('bBtStop').onclick = () => { btCancel = true; btLog('Membatalkan…'); };
+$('bBtRun').onclick = async () => {
+  const days = Math.round(Number($('btDays').value)), nCoin = Math.round(Number($('btCoins').value));
+  if (!(days >= 7 && days <= 365) || !(nCoin >= 1 && nCoin <= 40)) { btLog('Periode 7–365 hari, koin 1–40.'); return; }
+  btCancel = false; $('bBtRun').disabled = true; $('bBtStop').disabled = false; $('bBtCsv').disabled = true; $('btRes').innerHTML = '';
+  try {
+    btLog('Mengambil daftar kontrak…');
+    const [contracts, tickers] = await Promise.all([api('futures/usdt/contracts', {}), api('futures/usdt/tickers', {})]);
+    const cmap = new Map(contracts.map(c => [c.name, c]));
+    let list;
+    const manual = $('btList').value.split(/[\s,]+/).map(x => x.trim().toUpperCase()).filter(Boolean);
+    if (manual.length) {
+      const bad = manual.filter(m => !cmap.has(m));
+      if (bad.length) throw new Error('kontrak tidak ditemukan: ' + bad.join(', '));
+      list = manual.slice(0, 40).map(m => { const c = cmap.get(m); return { contract: m, mult: Number(c.quanto_multiplier), sizeMin: Math.max(1, Number(c.order_size_min) || 1), fundingInterval: Number(c.funding_interval) || 28800 }; });
+    } else {
+      list = AT.buildUniverse(contracts, tickers, { ...cfg, topN: nCoin });
+      if (!list.length) throw new Error('tidak ada koin lolos filter');
+    }
+    const nowSec = Math.floor(Date.now() / 1000);
+    const endSec = Math.floor(nowSec / 300) * 300 - 300;
+    const startSec = endSec - days * 86400, warmSec = startSec - 3 * 86400;
+    const perCoinReq = Math.ceil((endSec - warmSec) / (1999 * 60)) + 1;
+    let done = 0; const totalReq = perCoinReq * list.length;
+    const tick = () => { done++; btLog('Unduh data ' + Math.min(99, Math.round(done / totalReq * 100)) + '% (' + done + ' request)'); };
+    const series = [], coverage = [];
+    let qi = 0;
+    await Promise.all([0, 1, 2].map(async () => {
+      while (qi < list.length && !btCancel) {
+        const u = list[qi++];
+        let baseSec = 60, base = await fetchBars(u.contract, 60, warmSec, endSec, tick);
+        if (!base.length || base[0].t > startSec - 86400) {
+          const b5 = await fetchBars(u.contract, 300, warmSec, endSec, tick);
+          if (b5.length && (!base.length || b5[0].t < base[0].t)) { base = b5; baseSec = 300; }
+        }
+        const funding = await fetchFunding(u.contract, u.fundingInterval, startSec, endSec);
+        series.push({ contract: u.contract, mult: u.mult, sizeMin: u.sizeMin, baseSec, base, funding });
+        coverage.push({ c: u.contract, baseSec, from: base.length ? base[0].t : null, bars: base.length, fund: funding.length });
+      }
+    }));
+    if (btCancel) throw new Error('dibatalkan');
+    const usable = series.filter(x => x.base.length > 1000);
+    if (!usable.length) throw new Error('data historis tidak tersedia');
+    const realStart = Math.max(startSec, Math.min(...usable.map(x => x.base[0].t)) + 3 * 86400);
+    btLog('Menjalankan simulasi…');
+    const r = await AT.runBacktest(usable, cfg, {
+      startMs: realStart * 1000, endMs: endSec * 1000,
+      onProgress: f => btLog('Simulasi ' + Math.round(f * 100) + '%'), cancelled: () => btCancel,
+    });
+    if (btCancel) throw new Error('dibatalkan');
+    btLast = r; $('bBtCsv').disabled = !r.trades.length;
+    renderBt(r, coverage, days, realStart);
+    btLog('Selesai: ' + r.stats.n + ' trade, ' + new Date(r.startMs).toISOString().slice(0, 10) + ' s/d ' + new Date(r.endMs).toISOString().slice(0, 10) + ' UTC');
+  } catch (e) { btLog('Backtest gagal: ' + (e.message || e)); }
+  finally { $('bBtRun').disabled = false; $('bBtStop').disabled = true; }
+};
+function renderBt(r, cov, days, realStart) {
+  const S = r.stats;
+  const k = [['Trade', S.n], ['Net', (S.total >= 0 ? '+' : '') + f2(S.total), sgn(S.total)], ['Saldo akhir', f2(r.balance), sgn(r.balance - cfg.startBalance)],
+    ['Winrate', Number.isFinite(S.winrate) ? (S.winrate * 100).toFixed(1) + '%' : '—'], ['Expectancy', f2(S.exp), sgn(S.exp)], ['Profit factor', S.pf === Infinity ? '∞' : f2(S.pf)],
+    ['Max DD', f2(S.mdd), S.mdd > 0 ? 'dn' : ''], ['Avg win', f2(S.avgWin), 'up'], ['Avg loss', f2(S.avgLoss), 'dn']];
+  const shortCov = (realStart - (Math.floor(Date.now() / 1000) - days * 86400)) > 2 * 86400;
+  let h = '<div class="kpis">' + k.map(([a, b, c]) => '<div class="kpi"><span>' + a + '</span><b class="' + (c || '') + '">' + b + '</b></div>').join('') + '</div>';
+  h += '<div class="kv" style="margin-bottom:12px"><span>Go-live</span><b>' + (S.ready ? '<span class="badge ok">READY</span>' : '<span class="badge warn">NOT READY</span>') + '</b><span>Exit</span><b>' + (Object.entries(S.reasons).map(([a, b]) => a + ' ' + b).join(' · ') || '—') + '</b>' +
+    (shortCov ? '<span>Catatan</span><b class="dn">histori lebih pendek dari ' + days + ' hari</b>' : '') + '</div>';
+  h += '<div class="fig" style="height:220px"><svg id="btEq"></svg></div>';
+  const mo = Object.entries(r.monthly).sort();
+  h += '<h2 style="margin-top:16px">Per bulan</h2><div class="scroll"><table><thead><tr><th>Bulan</th><th class="n">Trade</th><th class="n">Winrate</th><th class="n">Net</th></tr></thead><tbody>' +
+    (mo.length ? mo.map(([m, a]) => '<tr><td>' + m + '</td><td class="n">' + a.n + '</td><td class="n">' + (a.win / a.n * 100).toFixed(0) + '%</td><td class="n ' + sgn(a.net) + '">' + f2(a.net) + '</td></tr>').join('') : '<tr><td colspan="4">—</td></tr>') + '</tbody></table></div>';
+  const pc = Object.entries(r.perCoin).sort((a, b) => b[1].net - a[1].net);
+  const cmap = new Map(cov.map(c => [c.c, c]));
+  h += '<h2 style="margin-top:16px">Per koin & cakupan data</h2><div class="scroll"><table><thead><tr><th>Koin</th><th>Data</th><th>Mulai</th><th class="n">Trade</th><th class="n">Winrate</th><th class="n">Net</th></tr></thead><tbody>' +
+    cov.slice().sort((a, b) => ((r.perCoin[b.c] || {}).net || 0) - ((r.perCoin[a.c] || {}).net || 0)).map(c => { const a = r.perCoin[c.c] || { n: 0, win: 0, net: 0 }; return '<tr><td>' + esc(c.c) + '</td><td>' + (c.bars ? (c.baseSec === 60 ? '1m' : '5m') + ' · ' + c.bars + ' bar' : '<span class="dn">tidak ada</span>') + '</td><td>' + (c.from ? new Date(c.from * 1000).toISOString().slice(0, 10) : '—') + '</td><td class="n">' + a.n + '</td><td class="n">' + (a.n ? (a.win / a.n * 100).toFixed(0) + '%' : '—') + '</td><td class="n ' + sgn(a.net) + '">' + f2(a.net) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+  const tr = r.trades.slice(-100).reverse();
+  h += '<h2 style="margin-top:16px">100 trade terakhir</h2><div class="scroll"><table><thead><tr><th>Buka (UTC)</th><th>Koin</th><th>Arah</th><th class="n">Entry</th><th class="n">Exit</th><th>Exit</th><th class="n">Net</th></tr></thead><tbody>' +
+    (tr.length ? tr.map(t => '<tr><td>' + hm(t.openedAt) + '</td><td>' + esc(t.symbol) + '</td><td>' + (t.side === 1 ? 'LONG' : 'SHORT') + '</td><td class="n">' + AT.fmtPx(t.entry) + '</td><td class="n">' + AT.fmtPx(t.exit) + '</td><td>' + t.reason + '</td><td class="n ' + sgn(t.net) + '">' + (t.net >= 0 ? '+' : '') + t.net.toFixed(3) + '</td></tr>').join('') : '<tr><td colspan="7">Tidak ada trade.</td></tr>') + '</tbody></table></div>';
+  h += '<p class="note">Asumsi backtest: entry di open bar setelah sinyal ± setengah spread (' + (cfg.maxSpreadPct / 2) + '%) + slippage ' + cfg.slippagePct + '%, fee taker ' + cfg.takerFeePct + '%/sisi, funding historis, SL dianggap kena dulu bila SL & TP di bar yang sama. Universe = koin likuid saat ini (bias survivorship). Hasil masa lalu tidak menjamin hasil ke depan.</p>';
+  $('btRes').innerHTML = h;
+  const sv = $('btEq'); const draw = () => { const W = sv.clientWidth, H = sv.clientHeight; if (!W || !H) return; const pts = S.curve.map(v => cfg.startBalance + v); const lo = Math.min(...pts), hi = Math.max(...pts, lo + 1); const pl = 44, pr = 10, pt = 10, pb = 20; const x = i => pl + (pts.length > 1 ? i / (pts.length - 1) : 0) * (W - pl - pr), y = v => pt + (hi - v) / (hi - lo) * (H - pt - pb); sv.innerHTML = [lo, cfg.startBalance, hi].filter((v, i, a) => i === 0 || a.slice(0, i).every(w => Math.abs(y(w) - y(v)) > 14)).map(v => '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--line)"/><text x="' + (pl - 6) + '" y="' + (y(v) + 4) + '" font-size="11" text-anchor="end" fill="var(--mut)">' + v.toFixed(1) + '</text>').join('') + '<polyline fill="none" stroke="var(--acc)" stroke-width="2" points="' + pts.map((v, i) => x(i) + ',' + y(v)).join(' ') + '"/>'; };
+  const ro2 = new ResizeObserver(draw); ro2.observe(sv);
+}
+$('bBtCsv').onclick = async () => {
+  if (!btLast) return;
+  const csv = ['symbol,side,qty,entry,exit,opened_utc,closed_utc,reason,gross,fees,funding,net', ...btLast.trades.map(t => [t.symbol, t.side === 1 ? 'LONG' : 'SHORT', t.qty, t.entry, t.exit, new Date(t.openedAt).toISOString(), new Date(t.closedAt).toISOString(), t.reason, t.gross.toFixed(6), t.fees.toFixed(6), t.funding.toFixed(6), t.net.toFixed(6)].join(','))].join('\n');
+  try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'autotrade10_backtest.csv'; document.body.appendChild(a); a.click(); a.remove(); } catch {}
+  try { await navigator.clipboard.writeText(csv); } catch {}
+};
+
+apiInit();
+renderCfg();
+render();
+setInterval(() => { if (timer) render(); }, 5000);
+}
+</script>
+</body>
+</html>
